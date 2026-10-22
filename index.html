@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DPIS Internet</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="DPIS provides fast, reliable fiber and wireless internet for homes and businesses across Pakistan.">
+<link rel="icon" href="logos/dpis-signal-d.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500;700&family=Noto+Nastaliq+Urdu:wght@500&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- Edit before going live: every price, phone number, email, city and area below is sample content. -->
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="DPIS home">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke-linecap="round"><path d="M20 8 V56" stroke="currentColor" stroke-width="6"/><path d="M20 8 A24 24 0 0 1 20 56" stroke="currentColor" stroke-width="6"/><path d="M30.3 19.7 A16 16 0 0 1 30.3 44.3" stroke="var(--signal)" stroke-width="5"/><path d="M25.8 25.1 A9 9 0 0 1 25.8 38.9" stroke="var(--signal)" stroke-width="5"/></g></svg>
+      <span class="brand-name">DPIS</span>
+    </a>
+    <button class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="nav">Menu</button>
+    <nav class="nav" id="nav">
+      <a href="#plans">Packages</a>
+      <a href="#coverage">Coverage</a>
+      <a href="#how">Get connected</a>
+      <a href="#faq">FAQ</a>
+      <a class="btn btn-signal" href="#contact">Request a connection</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-copy">
+        <p class="eyebrow" style="color: var(--signal)">Fiber &amp; wireless internet · Pakistan</p>
+        <h1>Internet that keeps up with <em>your whole house.</em></h1>
+        <p class="urdu" lang="ur">تیز رفتار، مستحکم، ہر وقت آن</p>
+        <p class="hero-lede">DPIS connects homes and businesses with unlimited data, fixed monthly prices and local support that answers in Urdu or English.</p>
+        <div class="hero-actions">
+          <a class="btn btn-signal" href="#plans">See packages</a>
+          <a class="btn btn-ghost" href="#coverage">Check my area</a>
+        </div>
+        <div class="hero-facts">
+          <div><strong>Unlimited</strong>data, no daily caps</div>
+          <div><strong>24/7</strong>helpline</div>
+          <div><strong>48 hrs</strong>typical install time</div>
+        </div>
+      </div>
+
+      <form class="finder" id="finder" aria-labelledby="finder-title">
+        <h2 id="finder-title">Which speed do you need?</h2>
+        <svg class="gauge" viewBox="0 0 250 140" role="img" aria-labelledby="gauge-label">
+          <title id="gauge-label">Recommended speed</title>
+          <path class="track" d="M29 120 A96 96 0 0 1 221 120" fill="none" stroke-width="14" stroke-linecap="round"/>
+          <path class="fill" id="gauge-fill" d="M29 120 A96 96 0 0 1 221 120" fill="none" stroke-width="14" stroke-linecap="round" stroke-dasharray="301.6" stroke-dashoffset="226.2"/>
+          <g class="tick" text-anchor="middle" dominant-baseline="middle">
+            <text x="13" y="120">0</text>
+            <text x="47" y="42">50</text>
+            <text x="125" y="10">100</text>
+            <text x="203" y="42">150</text>
+            <text x="237" y="120">200</text>
+          </g>
+          <text class="readout" id="gauge-readout" x="125" y="104" text-anchor="middle">50</text>
+          <text class="unit" x="125" y="124" text-anchor="middle">MBPS</text>
+        </svg>
+        <div>
+          <div class="people-row">
+            <label for="people">People using the internet</label>
+            <output id="people-out" for="people">4</output>
+          </div>
+          <input type="range" id="people" min="1" max="12" value="4">
+        </div>
+        <fieldset class="uses">
+          <legend>What do you use it for?</legend>
+          <label class="chip"><input type="checkbox" id="use-stream" value="15" checked><span>HD / 4K streaming</span></label>
+          <label class="chip"><input type="checkbox" id="use-work" value="10" checked><span>Work &amp; video calls</span></label>
+          <label class="chip"><input type="checkbox" id="use-game" value="10"><span>Online gaming</span></label>
+          <label class="chip"><input type="checkbox" id="use-cctv" value="8"><span>CCTV cameras</span></label>
+        </fieldset>
+        <div class="result">
+          <p>We recommend<strong id="rec-plan">Family 50 Mbps</strong><span id="rec-price">Rs 5,500 / month</span></p>
+          <a class="btn btn-signal" href="#contact" id="rec-cta">Get this package</a>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="band" id="plans">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Packages</p>
+        <h2>One fixed price every month. Unlimited data.</h2>
+        <p>Every package includes a dual-band Wi-Fi router, free installation in covered areas and no data limits.</p>
+      </div>
+      <div class="plan-tabs" role="tablist" aria-label="Package type">
+        <button role="tab" id="tab-home" aria-selected="true" aria-controls="panel-home">Home</button>
+        <button role="tab" id="tab-biz" aria-selected="false" aria-controls="panel-biz">Business</button>
+      </div>
+
+      <div class="plans" id="panel-home" role="tabpanel" aria-labelledby="tab-home">
+        <article class="plan">
+          <div class="plan-name">Basic</div>
+          <div class="speed">10<small>Mbps</small></div>
+          <div class="price"><b>Rs 2,500</b> / month</div>
+          <ul><li>1–2 people</li><li>Browsing, WhatsApp, YouTube</li><li>Unlimited data</li></ul>
+          <a class="btn btn-ghost" href="#contact" data-plan="Basic 10 Mbps">Choose Basic</a>
+        </article>
+        <article class="plan">
+          <div class="plan-name">Home</div>
+          <div class="speed">20<small>Mbps</small></div>
+          <div class="price"><b>Rs 3,500</b> / month</div>
+          <ul><li>2–3 people</li><li>HD streaming, online classes</li><li>Unlimited data</li></ul>
+          <a class="btn btn-ghost" href="#contact" data-plan="Home 20 Mbps">Choose Home</a>
+        </article>
+        <article class="plan featured">
+          <span class="tag">Most chosen</span>
+          <div class="plan-name">Family</div>
+          <div class="speed">50<small>Mbps</small></div>
+          <div class="price"><b>Rs 5,500</b> / month</div>
+          <ul><li>4–6 people</li><li>4K streaming, work from home</li><li>Free static IP on request</li></ul>
+          <a class="btn btn-brand" href="#contact" data-plan="Family 50 Mbps">Choose Family</a>
+        </article>
+        <article class="plan">
+          <div class="plan-name">Pro</div>
+          <div class="speed">100<small>Mbps</small></div>
+          <div class="price"><b>Rs 8,500</b> / month</div>
+          <ul><li>6–10 people</li><li>Gaming, CCTV, large uploads</li><li>Priority support line</li></ul>
+          <a class="btn btn-ghost" href="#contact" data-plan="Pro 100 Mbps">Choose Pro</a>
+        </article>
+      </div>
+
+      <div class="plans" id="panel-biz" role="tabpanel" aria-labelledby="tab-biz" hidden>
+        <article class="plan">
+          <div class="plan-name">Shop &amp; Office</div>
+          <div class="speed">100<small>Mbps</small></div>
+          <div class="price"><b>Rs 12,000</b> / month</div>
+          <ul><li>Up to 25 staff</li><li>1 static IP</li><li>Next-day fault response</li></ul>
+          <a class="btn btn-ghost" href="#contact" data-plan="Business 100 Mbps">Choose this</a>
+        </article>
+        <article class="plan featured">
+          <span class="tag">For growing teams</span>
+          <div class="plan-name">Business Plus</div>
+          <div class="speed">200<small>Mbps</small></div>
+          <div class="price"><b>Rs 20,000</b> / month</div>
+          <ul><li>Up to 60 staff</li><li>4 static IPs</li><li>4-hour fault response</li></ul>
+          <a class="btn btn-brand" href="#contact" data-plan="Business Plus 200 Mbps">Choose this</a>
+        </article>
+        <article class="plan">
+          <div class="plan-name">Dedicated</div>
+          <div class="speed">1:1<small>uncontended</small></div>
+          <div class="price"><b>Custom</b> quote</div>
+          <ul><li>Symmetrical bandwidth</li><li>Service level agreement</li><li>Backup link option</li></ul>
+          <a class="btn btn-ghost" href="#contact" data-plan="Dedicated internet (quote)">Ask for a quote</a>
+        </article>
+      </div>
+      <p class="fine">Prices include taxes. Installation is free with a 12-month subscription in covered areas; a one-time router security deposit may apply.</p>
+    </div>
+  </section>
+
+  <section class="band band-alt">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Why DPIS</p>
+        <h2>Built for load-shedding, rain and busy evenings.</h2>
+      </div>
+      <div class="features">
+        <div class="feature">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 22c6 0 8-12 14-12s6 6 10 6"/><path d="M4 27c6 0 8-12 14-12s6 6 10 6" opacity=".5"/></svg>
+          <h3>Fiber-backed network</h3>
+          <p>Our backbone runs on fiber, so evening speeds stay close to what you pay for.</p>
+        </div>
+        <div class="feature">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 3 8 18h8l-2 11 10-15h-8z"/></svg>
+          <h3>Stays on during load-shedding</h3>
+          <p>Every node has battery backup. Add a small UPS for your router and you stay online through outages.</p>
+        </div>
+        <div class="feature">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 16a10 10 0 0 1 20 0v6a3 3 0 0 1-3 3h-2v-8h5M6 17h5v8H9a3 3 0 0 1-3-3z"/></svg>
+          <h3>Local support, 24/7</h3>
+          <p>Call or WhatsApp a technician who knows your area. Urdu, English and Punjabi spoken.</p>
+        </div>
+        <div class="feature">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="7" width="22" height="18" rx="3"/><path d="M5 13h22M11 19h4"/></svg>
+          <h3>Easy payment</h3>
+          <p>Pay by JazzCash, Easypaisa, bank transfer or cash to your area agent. No hidden charges.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="coverage">
+    <div class="wrap coverage">
+      <div>
+        <div class="section-head" style="margin-bottom:0">
+          <p class="eyebrow">Coverage</p>
+          <h2>Is DPIS available in my area?</h2>
+          <p>Type your city or area. If we're not there yet, leave your number and we'll call you when we reach your street.</p>
+        </div>
+        <form class="check-form" id="check-form">
+          <label for="area" class="eyebrow" style="flex-basis:100%">City or area</label>
+          <input id="area" placeholder="e.g. DHA Lahore, Gulshan Karachi" autocomplete="address-level2">
+          <button class="btn btn-brand" type="submit">Check</button>
+        </form>
+        <div id="check-result" class="status" hidden></div>
+      </div>
+      <ul class="cities" aria-label="Cities we serve">
+        <li>Lahore <span class="area">DHA · Johar Town</span></li>
+        <li>Karachi <span class="area">Gulshan · Clifton</span></li>
+        <li>Islamabad <span class="area">G-11 · F-10</span></li>
+        <li>Rawalpindi <span class="area">Bahria · Saddar</span></li>
+        <li>Faisalabad <span class="area">Madina Town</span></li>
+        <li>Multan <span class="area">Cantt · Gulgasht</span></li>
+        <li>Peshawar <span class="area">Hayatabad</span></li>
+        <li>Sialkot <span class="area">Cantt</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band band-alt" id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Get connected</p>
+        <h2>From request to Wi-Fi in about two days.</h2>
+      </div>
+      <ol class="steps">
+        <li><h3>Send a request</h3><p>Fill in the form or message us on WhatsApp with your address and package.</p></li>
+        <li><h3>Site survey</h3><p>A technician confirms coverage and the best cable or antenna route, usually the same day.</p></li>
+        <li><h3>Installation</h3><p>We install the line and router and test speed in front of you. Bring your CNIC copy.</p></li>
+        <li><h3>Go online</h3><p>Pay your first month and start browsing. Your invoice comes by SMS each month.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="band" id="faq">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Questions</p>
+        <h2>Frequently asked</h2>
+      </div>
+      <div class="faq">
+        <details><summary>Is the data really unlimited?</summary><p>Yes. There are no daily or monthly data caps and no speed reduction after a certain usage.</p></details>
+        <details><summary>What documents do I need?</summary><p>A copy of the account holder's CNIC and the installation address. Businesses also need an NTN or company letterhead for invoicing.</p></details>
+        <details><summary>Will the internet work during load-shedding?</summary><p>Our network nodes run on battery backup. Your router needs power too, so a small router UPS (about Rs 4,000) keeps you online through outages.</p></details>
+        <details><summary>Can I upgrade or downgrade my package?</summary><p>Yes, any time. The change takes effect within 24 hours and your next bill is adjusted.</p></details>
+        <details><summary>How do I report a fault?</summary><p>Call the helpline or send a WhatsApp message with your customer ID. Most faults are fixed remotely within an hour; a technician visit is booked if needed.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="band band-alt" id="contact">
+    <div class="wrap contact">
+      <div>
+        <div class="section-head" style="margin-bottom:0">
+          <p class="eyebrow">Contact</p>
+          <h2>Request a new connection</h2>
+          <p>Send us your details and our sales team will call you back within working hours.</p>
+        </div>
+        <ul class="contact-list">
+          <li><span>Helpline</span><a href="tel:+923000000000" class="num">0300 000 0000</a></li>
+          <li><span>WhatsApp</span><a href="https://wa.me/923000000000" target="_blank" rel="noopener" class="num">0300 000 0000</a></li>
+          <li><span>Email</span><a href="mailto:info@dpis.pk">info@dpis.pk</a></li>
+          <li><span>Office</span><b>Main Boulevard, Lahore</b></li>
+        </ul>
+      </div>
+      <form class="form" id="lead-form">
+        <label>Full name<input id="lead-name" name="name" required autocomplete="name"></label>
+        <label>Mobile number<input id="lead-phone" name="phone" type="tel" required placeholder="03xx xxxxxxx" autocomplete="tel"></label>
+        <label>City<input id="lead-city" name="city" required autocomplete="address-level2"></label>
+        <label>Package
+          <select id="lead-plan" name="plan">
+            <option>Basic 10 Mbps</option>
+            <option>Home 20 Mbps</option>
+            <option selected>Family 50 Mbps</option>
+            <option>Pro 100 Mbps</option>
+            <option>Business 100 Mbps</option>
+            <option>Business Plus 200 Mbps</option>
+            <option>Dedicated internet (quote)</option>
+          </select>
+        </label>
+        <label class="full">Full address<textarea id="lead-address" name="address" rows="3" required></textarea></label>
+        <button class="btn btn-brand full" type="submit">Send request on WhatsApp</button>
+        <div class="form-done" id="form-done" hidden>
+          <strong>Your request is ready to send.</strong>
+          <pre id="form-message"></pre>
+          <a class="btn btn-brand" id="form-wa" target="_blank" rel="noopener" href="https://wa.me/923000000000">Open WhatsApp to send</a>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 64 64" aria-hidden="true" style="width:28px;height:28px"><g fill="none" stroke-linecap="round"><path d="M20 8 V56" stroke="currentColor" stroke-width="6"/><path d="M20 8 A24 24 0 0 1 20 56" stroke="currentColor" stroke-width="6"/><path d="M30.3 19.7 A16 16 0 0 1 30.3 44.3" stroke="var(--signal)" stroke-width="5"/><path d="M25.8 25.1 A9 9 0 0 1 25.8 38.9" stroke="var(--signal)" stroke-width="5"/></g></svg>
+      <span class="brand-name" style="font-size:1.1rem">DPIS</span>
+    </a>
+    <p>© <span id="year">2026</span> DPIS. Internet services across Pakistan.</p>
+    <p><a href="logos.html">Logo concepts</a></p>
+  </div>
+</footer>
+
+<a class="wa-float" href="https://wa.me/923000000000" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.2.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg>
+</a>
+
+<script src="js/main.js"></script>
+</body>
+</html>

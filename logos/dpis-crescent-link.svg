@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DPIS logo: Crescent Link">
+  <title>DPIS Crescent Link</title>
+  <defs>
+    <mask id="cut"><rect width="64" height="64" fill="#fff"/><circle cx="38" cy="27" r="18" fill="#000"/></mask>
+  </defs>
+  <circle cx="30" cy="34" r="24" fill="#0A6B45" mask="url(#cut)"/>
+  <g stroke="#F0A422" stroke-width="2.5" stroke-linecap="round">
+    <path d="M44 24 L54 14 M44 24 L56 28 M54 14 L56 28"/>
+  </g>
+  <g fill="#F0A422">
+    <circle cx="44" cy="24" r="4.5"/><circle cx="54" cy="14" r="3"/><circle cx="56" cy="28" r="3"/>
+  </g>
+</svg>

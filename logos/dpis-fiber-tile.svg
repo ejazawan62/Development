@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DPIS logo: Fiber Tile">
+  <title>DPIS Fiber Tile</title>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0A6B45"/>
+  <g fill="none" stroke="#F0A422" stroke-width="3" stroke-linecap="round">
+    <path d="M10 44 C28 44 36 34 54 34"/>
+    <path d="M10 50 C28 50 36 40 54 40" opacity=".7"/>
+    <path d="M10 56 C28 56 36 46 54 46" opacity=".4"/>
+  </g>
+  <text x="10" y="29" font-family="'Bricolage Grotesque','Arial Black',sans-serif" font-weight="800" font-size="20" fill="#fff">dp</text>
+</svg>

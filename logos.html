@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DPIS Logo Concepts</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" href="logos/dpis-signal-d.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .concepts { display: grid; gap: 1.5rem; }
+  .concept { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 1.5rem; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.25rem; }
+  .concept.pick { border: 2px solid var(--brand); }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: stretch; }
+  .tile { display: grid; place-items: center; border-radius: 8px; padding: 1.5rem 1rem; min-height: 150px; }
+  .tile.light { background: #FFFFFF; border: 1px solid var(--line); }
+  .tile.dark { background: #08382A; }
+  .tile img { max-width: 100%; height: 96px; }
+  .tile.wide img { height: 64px; }
+  .sizes { display: grid; gap: 0.5rem; align-content: center; justify-items: center; padding-inline: 0.5rem; font: 0.7rem var(--font-mono); color: var(--muted); }
+  .sizes img { display: block; }
+  .concept-text { display: grid; gap: 0.6rem; }
+  .concept-text p { color: var(--muted); }
+  .badge { justify-self: start; background: var(--brand); color: var(--brand-ink); font: 600 0.72rem var(--font-mono); text-transform: uppercase; letter-spacing: .08em; padding: 0.2rem 0.6rem; border-radius: 4px; }
+  .palette { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 2.5rem; }
+  .swatch { display: flex; align-items: center; gap: 0.6rem; font: 0.8rem var(--font-mono); }
+  .swatch i { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line); }
+  @media (max-width: 760px) { .concept { grid-template-columns: 1fr; } .tiles { grid-template-columns: 1fr 1fr; } .sizes { grid-column: 1 / -1; grid-auto-flow: column; } }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke-linecap="round"><path d="M20 8 V56" stroke="currentColor" stroke-width="6"/><path d="M20 8 A24 24 0 0 1 20 56" stroke="currentColor" stroke-width="6"/><path d="M30.3 19.7 A16 16 0 0 1 30.3 44.3" stroke="var(--signal)" stroke-width="5"/><path d="M25.8 25.1 A9 9 0 0 1 25.8 38.9" stroke="var(--signal)" stroke-width="5"/></g></svg>
+      <span class="brand-name">DPIS</span>
+    </a>
+    <nav class="nav" style="display:flex;position:static;flex-direction:row;padding:0;border:0;background:none"><a href="index.html" style="border:0;padding:0">Back to website</a></nav>
+  </div>
+</header>
+<main class="band">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Brand</p>
+      <h2>Four logo concepts for DPIS</h2>
+      <p>All four share the same deep Pakistan green and an amber "signal" colour. Each is shown on white, on the dark brand green, and at favicon sizes to check it still reads when small. The website currently uses Signal D.</p>
+    </div>
+
+    <div class="concepts">
+      <article class="concept pick">
+        <div class="tiles">
+          <div class="tile light"><img src="logos/dpis-signal-d.svg" alt="Signal D logo on white"></div>
+          <div class="tile dark"><img src="logos/dpis-signal-d-reversed.svg" alt="Signal D logo on dark green"></div>
+          <div class="sizes"><img src="logos/dpis-signal-d.svg" width="32" height="32" alt=""><img src="logos/dpis-signal-d.svg" width="16" height="16" alt="">32 / 16px</div>
+        </div>
+        <div class="concept-text">
+          <span class="badge">Recommended</span>
+          <h3>1. Signal D</h3>
+          <p>The letter D drawn as a Wi-Fi signal. Simple, works in one colour, and stays clear as a favicon, app icon or on a router sticker.</p>
+        </div>
+      </article>
+
+      <article class="concept">
+        <div class="tiles">
+          <div class="tile light"><img src="logos/dpis-crescent-link.svg" alt="Crescent Link logo on white"></div>
+          <div class="tile dark"><img src="logos/dpis-crescent-link.svg" alt="Crescent Link logo on dark green" style="filter: brightness(1.9) saturate(.8)"></div>
+          <div class="sizes"><img src="logos/dpis-crescent-link.svg" width="32" height="32" alt=""><img src="logos/dpis-crescent-link.svg" width="16" height="16" alt="">32 / 16px</div>
+        </div>
+        <div class="concept-text">
+          <h3>2. Crescent Link</h3>
+          <p>The crescent from the national flag, with the star replaced by three connected network nodes. Strongly Pakistani and patriotic in feel.</p>
+        </div>
+      </article>
+
+      <article class="concept">
+        <div class="tiles">
+          <div class="tile light"><img src="logos/dpis-fiber-tile.svg" alt="Fiber Tile logo on white"></div>
+          <div class="tile dark"><img src="logos/dpis-fiber-tile.svg" alt="Fiber Tile logo on dark green"></div>
+          <div class="sizes"><img src="logos/dpis-fiber-tile.svg" width="32" height="32" alt=""><img src="logos/dpis-fiber-tile.svg" width="16" height="16" alt="">32 / 16px</div>
+        </div>
+        <div class="concept-text">
+          <h3>3. Fiber Tile</h3>
+          <p>An app-icon style tile with three strands of fiber-optic light. Modern, and ready to use as a WhatsApp or Facebook profile picture.</p>
+        </div>
+      </article>
+
+      <article class="concept">
+        <div class="tiles">
+          <div class="tile light wide"><img src="logos/dpis-tower-wordmark.svg" alt="Tower wordmark on white"></div>
+          <div class="tile dark wide"><img src="logos/dpis-tower-wordmark.svg" alt="Tower wordmark on dark green" style="filter: brightness(2.6) saturate(.6)"></div>
+          <div class="sizes"><img src="logos/dpis-tower-wordmark.svg" width="64" height="24" alt="">64px wide</div>
+        </div>
+        <div class="concept-text">
+          <h3>4. Tower Wordmark</h3>
+          <p>The full name DPIS with the letter I turned into a broadcast tower. Best for signboards, vehicles and letterheads; too detailed for a favicon.</p>
+        </div>
+      </article>
+    </div>
+
+    <div class="palette" aria-label="Brand colours">
+      <div class="swatch"><i style="background:#0A6B45"></i>DPIS Green #0A6B45</div>
+      <div class="swatch"><i style="background:#08382A"></i>Deep Green #08382A</div>
+      <div class="swatch"><i style="background:#F0A422"></i>Signal Amber #F0A422</div>
+      <div class="swatch"><i style="background:#F3F7F5"></i>Mist #F3F7F5</div>
+    </div>
+  </div>
+</main>
+</body>
+</html>

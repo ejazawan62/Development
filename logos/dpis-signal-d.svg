@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DPIS logo: Signal D">
+  <title>DPIS Signal D</title>
+  <g fill="none" stroke-linecap="round">
+    <path d="M20 8 V56" stroke="#0A6B45" stroke-width="6"/>
+    <path d="M20 8 A24 24 0 0 1 20 56" stroke="#0A6B45" stroke-width="6"/>
+    <path d="M30.3 19.7 A16 16 0 0 1 30.3 44.3" stroke="#F0A422" stroke-width="5"/>
+    <path d="M25.8 25.1 A9 9 0 0 1 25.8 38.9" stroke="#F0A422" stroke-width="5"/>
+  </g>
+</svg>
