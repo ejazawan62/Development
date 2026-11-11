@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>eClawmerce — Shop smart, delivered fast</title>
+  <meta name="description" content="eClawmerce: an online store for electronics, fashion, home and beauty with cash on delivery and fast nationwide shipping.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="topbar">Free delivery on orders over Rs 3,000 · Cash on delivery available</div>
+
+  <header class="header">
+    <div class="wrap header-inner">
+      <a href="#" class="brand" aria-label="eClawmerce home">
+        <img src="assets/logo-mark.svg" alt="" width="40" height="40">
+        <span class="wordmark">e<b>Claw</b>merce</span>
+      </a>
+      <form class="search" role="search" onsubmit="return false">
+        <input id="search" type="search" placeholder="Search products…" aria-label="Search products">
+      </form>
+      <nav class="nav" aria-label="Main">
+        <a href="#categories">Categories</a>
+        <a href="#shop">Shop</a>
+        <a href="#why">Why us</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <button class="cart-btn" id="cartBtn" aria-label="Open cart">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 7h12l-1.2 12.1a2 2 0 0 1-2 1.9H9.2a2 2 0 0 1-2-1.9z M9 7V6a3 3 0 0 1 6 0v1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="cart-count" id="cartCount">0</span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap hero-inner">
+        <div class="hero-copy">
+          <span class="eyebrow">New season deals</span>
+          <h1>Grab what you love.<br><span class="accent">Delivered fast.</span></h1>
+          <p>eClawmerce brings you quality products at fair prices, with easy returns, secure checkout and delivery right to your door.</p>
+          <div class="hero-cta">
+            <a href="#shop" class="btn btn-primary">Start shopping</a>
+            <a href="#categories" class="btn btn-ghost">Browse categories</a>
+          </div>
+          <ul class="hero-points">
+            <li>Cash on delivery</li>
+            <li>7-day easy returns</li>
+            <li>Genuine products</li>
+          </ul>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="blob"></div>
+          <img src="assets/logo-mark.svg" alt="" class="hero-mark">
+          <div class="float-card fc1"><strong>Up to 40% off</strong><span>Electronics</span></div>
+          <div class="float-card fc2"><strong>Free delivery</strong><span>Over Rs 3,000</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="categories" class="section">
+      <div class="wrap">
+        <h2 class="section-title">Shop by category</h2>
+        <div class="cats" id="cats"></div>
+      </div>
+    </section>
+
+    <section id="shop" class="section section-alt">
+      <div class="wrap">
+        <div class="shop-head">
+          <h2 class="section-title">Featured products</h2>
+          <select id="sort" aria-label="Sort products">
+            <option value="featured">Featured</option>
+            <option value="low">Price: low to high</option>
+            <option value="high">Price: high to low</option>
+          </select>
+        </div>
+        <div class="products" id="products"></div>
+        <p class="empty" id="empty" hidden>No products match your search.</p>
+      </div>
+    </section>
+
+    <section id="why" class="section">
+      <div class="wrap">
+        <h2 class="section-title">Why shop with eClawmerce</h2>
+        <div class="features">
+          <div class="feature"><div class="ficon">🚚</div><h3>Fast delivery</h3><p>Orders are packed the same day and delivered in 2–5 working days.</p></div>
+          <div class="feature"><div class="ficon">💵</div><h3>Pay your way</h3><p>Cash on delivery, bank transfer, card or mobile wallet.</p></div>
+          <div class="feature"><div class="ficon">↩️</div><h3>Easy returns</h3><p>Not happy? Return it within 7 days, no hard questions.</p></div>
+          <div class="feature"><div class="ficon">🛡️</div><h3>Secure shopping</h3><p>Your details stay private and every order is tracked.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="newsletter">
+      <div class="wrap news-inner">
+        <div>
+          <h2>Get deals before anyone else</h2>
+          <p>Join our list for new arrivals and members-only discounts.</p>
+        </div>
+        <form id="newsForm" class="news-form">
+          <input type="email" required placeholder="Your email address" aria-label="Email address">
+          <button class="btn btn-light" type="submit">Subscribe</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer id="contact" class="footer">
+    <div class="wrap footer-grid">
+      <div>
+        <a href="#" class="brand brand-footer"><img src="assets/logo-mark.svg" alt="" width="36" height="36"><span class="wordmark">e<b>Claw</b>merce</span></a>
+        <p class="muted">Shop smart, delivered fast.</p>
+      </div>
+      <div>
+        <h4>Shop</h4>
+        <a href="#categories">Categories</a><a href="#shop">Featured</a><a href="#why">Why us</a>
+      </div>
+      <div>
+        <h4>Help</h4>
+        <a href="#">Track order</a><a href="#">Returns</a><a href="#">Shipping</a>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <a href="mailto:support@eclawmerce.com">support@eclawmerce.com</a>
+        <a href="https://wa.me/923000000000">WhatsApp: 0300 000 0000</a>
+      </div>
+    </div>
+    <div class="wrap copy">© <span id="year"></span> eClawmerce. All rights reserved.</div>
+  </footer>
+
+  <aside class="drawer" id="drawer" aria-label="Shopping cart" aria-hidden="true">
+    <div class="drawer-head">
+      <h3>Your cart</h3>
+      <button class="icon-btn" id="closeCart" aria-label="Close cart">✕</button>
+    </div>
+    <div class="drawer-body" id="cartItems"></div>
+    <div class="drawer-foot">
+      <div class="total"><span>Total</span><strong id="cartTotal">Rs 0</strong></div>
+      <button class="btn btn-primary btn-block" id="checkout">Order on WhatsApp</button>
+    </div>
+  </aside>
+  <div class="overlay" id="overlay"></div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
