@@ -485,6 +485,16 @@ async function viewWorklist(id, filter = 'all') {
     portalBar(t.portal_links),
     h('nav', { class: 'tabs', 'aria-label': 'Task' }, h('a', { href: `#/tasks/${id}`, class: 'on' }, 'Worklist'), h('a', { href: `#/tasks/${id}/report` }, 'Report')),
     msg, alertEls,
+    (!t.bot && t.state === 'confirmed' && inScope.some((r) => !r.record)) ? (() => {
+      const prompt = `You are Bot 1. Use the data-entry skill and start task ${t.id}.`;
+      return h('section', { class: 'card focus' }, h('h2', {}, 'Start a bot on this task'),
+        h('ol', { class: 'steps' },
+          h('li', {}, 'In Chrome, sign in to Office Ally and the portals this task needs.'),
+          h('li', {}, 'In the Claude desktop app: Code → New → your computer (local), folder C:\\BillingControl\\billing.'),
+          h('li', {}, 'Paste this message and send it: ', h('span', { class: 'typed' }, prompt), ' ', copyBtn(prompt)),
+          h('li', {}, 'The bot shows this Task Setup and waits for your "yes". Watch and talk to it here with Chat with bot.')),
+        h('div', { class: 'muted' }, 'Running a second bot at the same time? Change "Bot 1" to "Bot 2" and use a different Chrome profile.'));
+    })() : null,
     (() => {
       const unmatched = [...new Set(rows.filter((r) => r.in_scope && !r.record && r.blockers).flatMap((r) => r.blockers).map((b) => (b.match(/^Insurance "(.+)" is not in this practice's payer list/) || [])[1]).filter(Boolean))];
       return unmatched.length ? h('div', { class: 'alert' }, h('strong', {}, `${unmatched.length} insurance name(s) not in the payer list`),
