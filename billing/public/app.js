@@ -121,7 +121,7 @@ async function viewHome() {
         h('td', { class: 'mono' }, t.id),
         h('td', {}, h('a', { href: t.state === 'setup' ? `#/tasks/${t.id}/setup` : `#/tasks/${t.id}` }, TYPE[t.task_type])),
         h('td', {}, t.practice_name || '—', h('div', { class: 'muted' }, `${t.provider_name || ''} ${t.provider_npi ? '· NPI ' + t.provider_npi : ''}`)),
-        h('td', {}, t.tab_name || '—', h('div', { class: 'muted' }, t.row_from ? `rows ${t.row_from}–${t.row_to}` : '')),
+        h('td', {}, t.tab_name || '—', h('div', { class: 'muted' }, t.tab_name ? `rows ${t.row_from || 2}–${t.row_to || 'last'}` : '')),
         h('td', {}, progressBar(t)),
         h('td', {}, t.state === 'setup' ? pill(`Setup incomplete${t.problems.length ? ` · ${t.problems.length}` : ''}`, 'warn')
           : t.state === 'closed' ? pill('Closed') : t.bot_paused ? pill('Paused · waiting on you', 'warn') : pill('Ready for bot', 'blue'),
@@ -178,7 +178,8 @@ async function viewSetup(id) {
     if (!r.header.length) { showTabs(r.tabs); return; }
     // Keep the form in step with the resolved columns so saving doesn't reset the check.
     for (const c of ['status', 'insurance', 'notes']) if (r.columns[c].idx != null) f[`${c}_col`].value = r.columns[c].letter;
-    const colRow = (label, c) => h('tr', {}, h('td', {}, label), h('td', { class: 'mono' }, c.idx != null ? `${c.letter} · ${c.header}` : c.error), h('td', { class: c.idx != null ? 'ok' : 'bad' }, c.idx != null ? '✓' : '✗'));
+    if (r.task && r.task.tab_name) f.tab_name.value = r.task.tab_name;
+    const colRow = (label, c) => h('tr', {}, h('td', {}, label), h('td', { class: 'mono' }, c.idx != null ? `${c.letter} · ${c.header}${c.detected ? ' (found)' : ''}` : c.error), h('td', { class: c.idx != null ? 'ok' : 'bad' }, c.idx != null ? '✓' : '✗'));
     const selects = {};
     const fieldRows = t.fields.map((fd) => {
       const sel = h('select', { 'aria-label': fd.label }, h('option', { value: '' }, '—'), r.header.map((col, i) => h('option', { value: i, selected: r.mapping[fd.key] === i }, `${col.letter} · ${col.header}`)));
@@ -236,13 +237,14 @@ async function viewSetup(id) {
           ME.service_account ? h('div', { class: 'muted' }, `Share the sheet (Editor) with ${ME.service_account}`) : null,
           ME.sheets_account ? h('div', { class: 'muted' }, `Works with any sheet ${ME.sheets_account} can edit. No sharing needed.`) : null,
           h('div', { class: 'grid' },
-            h('label', {}, 'Tab name', input('tab_name')),
-            h('label', {}, 'Status column (letter or header)', input('status_col')),
-            h('label', {}, 'Insurance column', input('insurance_col')),
-            h('label', {}, 'Notes column', input('notes_col'))),
+            h('label', {}, 'Tab name', input('tab_name', { placeholder: 'Blank = the only tab, or pick after the check' })),
+            h('label', {}, 'Status column', input('status_col', { placeholder: 'Auto-detect' })),
+            h('label', {}, 'Insurance column', input('insurance_col', { placeholder: 'Auto-detect' })),
+            h('label', {}, 'Notes column', input('notes_col', { placeholder: 'Auto-detect' }))),
+          h('div', { class: 'muted' }, 'Leave the columns blank: "Check sheet header" finds them in row 1. Type a letter (K) or header name only to override.'),
           h('div', { class: 'grid' },
-            h('label', {}, 'From row', input('row_from', { inputmode: 'numeric' })),
-            h('label', {}, 'To row', input('row_to', { inputmode: 'numeric' })),
+            h('label', {}, 'From row (optional)', input('row_from', { inputmode: 'numeric', placeholder: '2' })),
+            h('label', {}, 'To row (optional)', input('row_to', { inputmode: 'numeric', placeholder: 'Last row' })),
             h('label', {}, 'DOS from (optional)', input('dos_from', { placeholder: 'MM/DD/YYYY' })),
             h('label', {}, 'DOS to (optional)', input('dos_to', { placeholder: 'MM/DD/YYYY' }))),
           h('button', { type: 'button', class: 'primary', onclick: runCheck }, 'Check sheet header')),
@@ -278,7 +280,7 @@ async function viewWorklist(id, filter = 'all') {
 
   shell('tasks',
     h('div', { class: 'row' }, h('h1', {}, `Task #${t.id} · ${TYPE[t.task_type]}`),
-      h('span', { class: 'muted' }, `${t.practice_name} · ${t.provider_name} · NPI ${t.provider_npi} · ${t.tab_name} · rows ${t.row_from}–${t.row_to}`),
+      h('span', { class: 'muted' }, `${t.practice_name} · ${t.provider_name} · NPI ${t.provider_npi} · ${t.tab_name} · rows ${t.row_from || 2}–${t.row_to || 'last'}`),
       h('span', { class: 'muted end' }, t.confirmed_at ? `Confirmed ${t.confirmed_at} UTC` : '')),
     h('nav', { class: 'tabs', 'aria-label': 'Task' }, h('a', { href: `#/tasks/${id}`, class: 'on' }, 'Worklist'), h('a', { href: `#/tasks/${id}/report` }, 'Report')),
     msg, alertEls,

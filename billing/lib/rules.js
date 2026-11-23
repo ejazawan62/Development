@@ -128,7 +128,7 @@ function buildReport(task, records, alerts, inScopeRows) {
   return {
     task: {
       id: task.id, type: task.task_type, practice: task.practice_name, provider: task.provider_name, provider_npi: task.provider_npi,
-      sheet: task.tab_name, rows: `${task.row_from}–${task.row_to}`,
+      sheet: task.tab_name, rows: `${task.row_from || 2}–${task.row_to || 'last row'}`,
     },
     demos: { demo_done: counts.demo_done, already_added: counts.already_added, not_eligible: counts.not_eligible },
     claims: { claim_created: counts.claim_created, submitted: counts.submitted },

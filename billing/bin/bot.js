@@ -98,7 +98,7 @@ async function main() {
       data = await call('GET', '/api/tasks');
       if (!opts.json) {
         if (!data.length) return console.log('No confirmed tasks. Ask the user to confirm a Task Setup in Billing Control.');
-        return console.log(data.map((t) => `#${t.id} ${t.task_type} · ${t.practice_name} · ${t.provider_name} · ${t.tab_name} rows ${t.row_from}-${t.row_to} · worked ${t.worked}/${t.rows_total}${t.bot_paused ? ' · PAUSED' : ''}`).join('\n'));
+        return console.log(data.map((t) => `#${t.id} ${t.task_type} · ${t.practice_name} · ${t.provider_name} · ${t.tab_name} rows ${t.row_from || 2}-${t.row_to || 'end'} · worked ${t.worked}/${t.rows_total}${t.bot_paused ? ' · PAUSED' : ''}`).join('\n'));
       }
       break;
     case 'show':
@@ -113,7 +113,7 @@ async function main() {
           `Office Ally:       ${data.oa_account}`,
           `Sheet / tab:       ${data.sheet_link} › ${data.tab_name}`,
           `Columns:           Status ${data.status_col} · Insurance ${data.insurance_col} · Notes ${data.notes_col}`,
-          `Rows:              ${data.row_from}-${data.row_to}${data.dos_from || data.dos_to ? ` · DOS ${data.dos_from || '…'} to ${data.dos_to || '…'}` : ''}`,
+          `Rows:              ${data.row_from || 2}-${data.row_to || 'last row'}${data.dos_from || data.dos_to ? ` · DOS ${data.dos_from || '…'} to ${data.dos_to || '…'}` : ''}`,
           `Portals:           ${data.portals.join(', ')}`,
           `Special:           ${data.special_instructions || '-'}`,
           `State:             ${data.state}${data.bot_paused ? ' · PAUSED (stop and ask the user)' : ''}`,

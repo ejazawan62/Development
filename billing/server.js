@@ -5,12 +5,13 @@ const express = require('express');
 const { open, tx, hashPassword, verifyPassword, sha256, readSettings, writeSetting } = require('./lib/db');
 const { createSheets, appsScriptAdapter, colToLetter, letterToCol, spreadsheetIdFromLink } = require('./lib/sheets');
 const { appsScriptSource } = require('./lib/apps-script');
-const { FIELDS, guessMapping, resolveColumn, missingRequired } = require('./lib/mapping');
+const { FIELDS, guessMapping, resolveColumn, detectColumn, missingRequired } = require('./lib/mapping');
 const checks = require('./lib/checks');
 const rules = require('./lib/rules');
 
 const SESSION_HOURS = 10;
 const REPEAT_LIMIT = 3;
+const MAX_ROWS = 3000;
 const SETUP_FIELDS = ['task_type', 'practice_name', 'provider_name', 'provider_npi', 'billing_npi', 'billing_tax_id', 'facilities',
   'oa_account', 'sheet_link', 'tab_name', 'status_col', 'insurance_col', 'notes_col', 'row_from', 'row_to', 'dos_from', 'dos_to',
   'portals', 'special_instructions', 'extra_drug_codes'];
@@ -135,8 +136,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const p = [];
     const need = (v, label) => { if (v == null || String(v).trim() === '') p.push(`${label} is blank`); };
     need(t.task_type, 'Task type'); need(t.practice_name, 'Practice name'); need(t.provider_name, 'Provider name');
-    need(t.oa_account, 'Office Ally account / practice'); need(t.sheet_link, 'Google Sheet link'); need(t.tab_name, 'Tab name');
-    need(t.status_col, 'Status column'); need(t.insurance_col, 'Insurance column'); need(t.notes_col, 'Notes column');
+    need(t.oa_account, 'Office Ally account / practice'); need(t.sheet_link, 'Google Sheet link');
     if (!checks.isValidNpi(t.provider_npi)) p.push('Provider NPI is missing or fails the NPI check digit');
     if (t.billing_npi && !checks.isValidNpi(t.billing_npi)) p.push('Billing/group NPI fails the NPI check digit');
     if (t.billing_tax_id && !/^\d{2}-?\d{7}$/.test(t.billing_tax_id)) p.push('Billing Tax ID must be 9 digits');
@@ -145,24 +145,28 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
       t.facilities.forEach((f, i) => { if (!f.name || !f.address) p.push(`Facility ${i + 1} needs both a name and an address`); });
     }
     if (!spreadsheetIdFromLink(t.sheet_link)) p.push('Google Sheet link is not a valid sheet link');
-    if (!(t.row_from >= 2) || !(t.row_to >= t.row_from)) p.push('Rows to work: "from" must be 2 or more and "to" not before "from"');
-    else if (t.row_to - t.row_from > 2000) p.push('Rows to work: at most 2000 rows per task');
+    if (t.row_from != null && !(t.row_from >= 2)) p.push('Rows to work: "from" must be 2 or more (or blank for row 2)');
+    if (t.row_to != null && !(t.row_to >= (t.row_from || 2))) p.push('Rows to work: "to" can\'t be before "from" (or leave it blank for the last row)');
+    if (t.row_to != null && t.row_to - (t.row_from || 2) >= MAX_ROWS) p.push(`Rows to work: at most ${MAX_ROWS} rows per task`);
     if (t.dos_from && !checks.parseDate(t.dos_from)) p.push('DOS from is not a valid date');
     if (t.dos_to && !checks.parseDate(t.dos_to)) p.push('DOS to is not a valid date');
     if (!t.portals.length) p.push('Portals needed: tick at least one');
     if (!t.header_checked_at) p.push('Run the sheet header check');
     else {
       const idx = [t.status_idx, t.insurance_idx, t.notes_idx];
-      if (idx.some((x) => x == null)) p.push('Status, Insurance and Notes columns must match the header row');
+      if (idx.some((x) => x == null)) p.push('Status, Insurance and Notes columns: not all were found in the header row. Type the column letter or header name and check again');
       else if (new Set(idx).size !== 3) p.push('Status, Insurance and Notes must be three different columns');
       for (const m of missingRequired(t.task_type, t.mapping)) p.push(`Match a sheet column for: ${m}`);
     }
     return p;
   }
 
-  function scopeOf(task, cells) {
+  // hasRecord: this task already recorded the row, so its own status write doesn't take it out of scope.
+  function scopeOf(task, cells, hasRecord = false) {
     const ident = checks.rowIdentity(cells, task.mapping);
     if (!ident.replace(/\|/g, '').trim()) return { in_scope: false, reason: 'Blank row' };
+    const status = task.status_idx != null ? String(cells[task.status_idx] || '').trim() : '';
+    if (status && !hasRecord) return { in_scope: false, reason: `Already has status "${status}" (clear it to work the row again)` };
     const dos = checks.parseDate(checks.cell(cells, task.mapping, 'dos'));
     if (dos && !checks.inDosRange(dos, task)) return { in_scope: false, reason: 'DOS outside the task date range' };
     return { in_scope: true };
@@ -179,7 +183,16 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     return out;
   }
   async function loadRows(task) {
-    const rows = await readRows(task, task.row_from, task.row_to);
+    const from = task.row_from || 2;
+    let rows;
+    if (task.row_to) rows = await readRows(task, from, task.row_to);
+    else {
+      // Open-ended: read to the last row with data.
+      const data = await sheets.readRange(task.spreadsheet_id, task.tab_name, `A${from}:ZZ${from + MAX_ROWS - 1}`);
+      let last = data.length;
+      while (last > 0 && !(data[last - 1] || []).some((v) => String(v).trim())) last--;
+      rows = data.slice(0, last).map((cells, i) => ({ row_no: from + i, cells: cells || [] }));
+    }
     tx(db, () => {
       q.run('DELETE FROM task_rows WHERE task_id = ?', task.id);
       for (const r of rows) q.run('INSERT INTO task_rows (task_id, row_no, cells) VALUES (?,?,?)', task.id, r.row_no, JSON.stringify(r.cells));
@@ -288,11 +301,20 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     if (t.state !== 'setup') throw bad('Setup is locked after confirmation.');
     if (!t.spreadsheet_id) throw bad('Enter a valid Google Sheet link first');
     const tabs = await sheets.listTabs(t.spreadsheet_id);
-    if (!t.tab_name) return res.json({ tabs, header: [], columns: {}, mapping: {}, missing: [] });
-    if (!tabs.includes(t.tab_name)) throw bad(`Tab "${t.tab_name}" is not in this sheet`, { tabs });
+    const squash = (x) => String(x).toLowerCase().replace(/\s+/g, '');
+    let tab = t.tab_name ? tabs.find((x) => x === t.tab_name) || tabs.find((x) => squash(x) === squash(t.tab_name)) : (tabs.length === 1 ? tabs[0] : null);
+    if (!t.tab_name && !tab) return res.json({ tabs, header: [], columns: {}, mapping: {}, missing: [] });
+    if (!tab) throw bad(`Tab "${t.tab_name}" is not in this sheet. Tabs: ${tabs.join(', ')}`, { tabs });
+    if (tab !== t.tab_name) q.run('UPDATE tasks SET tab_name = ? WHERE id = ?', tab, t.id);
+    t.tab_name = tab;
     const header = ((await sheets.readRange(t.spreadsheet_id, t.tab_name, 'A1:ZZ1'))[0] || []).map((h) => String(h).trim());
     const columns = {};
-    for (const c of ['status', 'insurance', 'notes']) columns[c] = resolveColumn(header, t[`${c}_col`]);
+    const taken = new Set();
+    for (const c of ['status', 'insurance', 'notes']) {
+      const spec = t[`${c}_col`];
+      columns[c] = spec ? resolveColumn(header, spec) : detectColumn(header, c, taken);
+      if (columns[c].idx != null) taken.add(columns[c].idx);
+    }
     const exclude = new Set(Object.values(columns).filter((c) => c.idx != null).map((c) => c.idx));
     const mapping = req.body && req.body.mapping ? sanitizeMapping(req.body.mapping, header) : guessMapping(header, exclude);
     for (const c of ['status', 'notes']) if (columns[c].idx != null) for (const k of Object.keys(mapping)) if (mapping[k] === columns[c].idx) delete mapping[k];
@@ -364,7 +386,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const latest = latestRecords(t.id);
     const rows = q.all('SELECT * FROM task_rows WHERE task_id = ? ORDER BY row_no', t.id).map((r) => {
       const cells = JSON.parse(r.cells);
-      const scope = scopeOf(t, cells);
+      const scope = scopeOf(t, cells, latest.has(r.row_no));
       const name = checks.patientName(cells, t.mapping);
       const out = {
         row_no: r.row_no, patient: name.unsplit || [name.last, name.first].filter(Boolean).join(', '),
@@ -397,7 +419,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const cells = cachedRow(t.id, rowNo);
     if (!cells) throw new HttpError(404, 'Row is not in this task');
     res.json({
-      row_no: rowNo, ...scopeOf(t, cells),
+      row_no: rowNo, ...scopeOf(t, cells, !!q.get('SELECT 1 FROM records WHERE task_id = ? AND row_no = ?', t.id, rowNo)),
       cells: t.header.map((h, i) => ({ letter: colToLetter(i), header: h, value: String(cells[i] == null ? '' : cells[i]) })),
       card: cardFor(t, cells),
       records: q.all('SELECT id, outcome, status_text, insurance, notes, checklist, actor, created_at FROM records WHERE task_id = ? AND row_no = ? ORDER BY id', t.id, rowNo),
@@ -533,7 +555,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const records = q.all('SELECT * FROM records WHERE task_id = ? ORDER BY id', t.id);
     const alerts = q.all('SELECT * FROM alerts WHERE task_id = ?', t.id);
     const inScope = q.all('SELECT * FROM task_rows WHERE task_id = ? ORDER BY row_no', t.id)
-      .filter((r) => scopeOf(t, JSON.parse(r.cells)).in_scope).map((r) => r.row_no);
+      .filter((r) => scopeOf(t, JSON.parse(r.cells), records.some((x) => x.row_no === r.row_no)).in_scope).map((r) => r.row_no);
     const report = rules.buildReport(t, records, alerts, inScope);
     const timed = q.all(`SELECT (julianday(created_at) - julianday(started_at)) * 86400 AS secs FROM records
       WHERE task_id = ? AND started_at IS NOT NULL AND actor = 'bot'`, t.id).map((r) => r.secs).filter((x) => x > 0);

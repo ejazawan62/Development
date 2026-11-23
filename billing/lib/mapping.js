@@ -55,6 +55,23 @@ function resolveColumn(header, spec) {
   return { error: `no column named "${t}" in the header row` };
 }
 
+const SHEET_COLUMNS = {
+  status: ['status', 'demo status', 'claim status', 'sheet status', 'work status', 'progress'],
+  insurance: ['insurance', 'primary insurance', 'insurance name', 'ins', 'primary ins', 'payer', 'primary payer', 'insurance company', 'carrier'],
+  notes: ['notes', 'note', 'comments', 'comment', 'remarks', 'remark', 'billing notes'],
+};
+const LABEL = { status: 'Status', insurance: 'Insurance', notes: 'Notes' };
+
+/** Finds the Status / Insurance / Notes column from the header row. */
+function detectColumn(header, kind, taken = new Set()) {
+  const headers = header.map(norm);
+  const syn = SHEET_COLUMNS[kind];
+  let idx = headers.findIndex((h, i) => !taken.has(i) && syn.includes(h));
+  if (idx < 0) idx = headers.findIndex((h, i) => !taken.has(i) && h && syn.some((s) => s.length > 3 && h.includes(s)) && !(kind === 'status' && /insur/.test(h)));
+  if (idx < 0) return { error: `no ${LABEL[kind]} column found: type its letter or header name` };
+  return { idx, letter: colToLetter(idx), header: header[idx], detected: true };
+}
+
 function guessMapping(header, exclude = new Set()) {
   const used = new Set(exclude);
   const mapping = {};
@@ -76,4 +93,4 @@ function missingRequired(taskType, mapping) {
     .map((alts) => alts.map((k) => FIELDS.find((f) => f.key === k).label).join(' or '));
 }
 
-module.exports = { FIELDS, guessMapping, resolveColumn, missingRequired };
+module.exports = { FIELDS, guessMapping, resolveColumn, detectColumn, missingRequired };
