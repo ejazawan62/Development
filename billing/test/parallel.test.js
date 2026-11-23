@@ -93,3 +93,41 @@ test('a person can release a task; a silent bot loses it after 20 minutes', asyn
   const over = await req('POST', '/api/tasks/1/next', null, 'Bot 1');
   assert.equal(over.status, 200, JSON.stringify(over.data));
 });
+
+test('chat: people message the bot, pause it, and resume it in real time', async () => {
+  // Task 1 is held by Bot 1 at this point.
+  await req('POST', '/api/tasks/1/messages', { body: 'Skip patients with Fidelis today' });
+  let hb = (await req('POST', '/api/tasks/1/heartbeat', null, 'Bot 1')).data;
+  assert.equal(hb.inbox.length, 1);
+  assert.equal(hb.inbox[0].body, 'Skip patients with Fidelis today');
+  hb = (await req('POST', '/api/tasks/1/heartbeat', null, 'Bot 1')).data;
+  assert.equal(hb.inbox.length, 0, 'each message is delivered once');
+
+  const bad = await req('POST', '/api/tasks/1/messages', { body: 'password: hunter2' });
+  assert.equal(bad.status, 422);
+
+  await req('POST', '/api/tasks/1/pause', { note: 'Wait, check row 3 first' });
+  const blocked = await req('POST', '/api/tasks/1/next', null, 'Bot 1');
+  assert.equal(blocked.status, 423);
+  assert.match(blocked.data.error, /paused by T/);
+  assert.match(blocked.data.inbox[0].body, /check row 3 first/);
+
+  assert.equal((await req('POST', '/api/tasks/1/messages', { body: 'Got it, waiting.' }, 'Bot 1')).status, 201);
+  assert.equal((await req('POST', '/api/tasks/1/messages', { body: 'not mine' }, 'Bot 9')).status, 409, 'only the bot on the task can post');
+
+  // The bot waits; a person's message wakes it up right away.
+  const t0 = Date.now();
+  const waiting = req('GET', '/api/tasks/1/wait?timeout=30', null, 'Bot 1');
+  setTimeout(() => req('POST', '/api/tasks/1/messages', { body: 'Row 3 is fine, carry on' }), 200);
+  const woke = (await waiting).data;
+  assert.ok(Date.now() - t0 < 5000, 'returns as soon as the message arrives');
+  assert.equal(woke.inbox[0].body, 'Row 3 is fine, carry on');
+  assert.equal(woke.paused, true);
+
+  const resumed = (await req('POST', '/api/tasks/1/resume')).data;
+  assert.equal(resumed.paused, false);
+  assert.equal((await req('POST', '/api/tasks/1/next', null, 'Bot 1')).status, 200);
+
+  const all = (await req('GET', '/api/tasks/1/messages')).data.messages;
+  assert.deepEqual(all.map((m) => m.sender), ['user', 'system', 'bot', 'user', 'system']);
+});

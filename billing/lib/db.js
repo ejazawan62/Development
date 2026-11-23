@@ -137,6 +137,17 @@ CREATE TABLE IF NOT EXISTS portals (
   url TEXT NOT NULL,
   sort INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES tasks(id),
+  sender TEXT NOT NULL CHECK (sender IN ('user','bot','system')),
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'message',
+  delivered_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_messages_task ON messages(task_id, id);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -169,7 +180,7 @@ function open(file) {
   db.exec(SCHEMA);
   // Columns added after the first release: add them to existing databases.
   const have = new Set(db.prepare('PRAGMA table_info(tasks)').all().map((c) => c.name));
-  for (const [col, type] of [['bot_name', 'TEXT'], ['bot_claimed_at', 'TEXT']]) {
+  for (const [col, type] of [['bot_name', 'TEXT'], ['bot_claimed_at', 'TEXT'], ['paused_by', 'TEXT']]) {
     if (!have.has(col)) db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
   }
   const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));

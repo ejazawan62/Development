@@ -20,6 +20,9 @@ const HELP = `Usage: bot <command> [args]
   heartbeat <task>                    Tell the app the bot is still working
   report <task>                       End-of-session report
   release <task>                      Give the task back (another bot can take it)
+  inbox <task>                        New messages from people, and whether the task is paused
+  say <task> "<text>"                 Send a message to the people watching this task in Billing Control
+  wait <task> [--timeout <seconds>]   While paused: wait until a person writes or resumes (default 300 s)
 
 Every command takes --as "<bot name>" (or set BILLING_BOT). Each bot that runs at the same time needs its own
 name, e.g. --as "Bot 2". One bot works one task at a time.
@@ -56,6 +59,15 @@ async function call(method, path, body) {
     throw err;
   }
   return data;
+}
+
+function inboxText(r) {
+  const lines = [];
+  for (const m of (r && r.inbox) || []) {
+    lines.push(`>>> ${m.kind === 'pause' ? 'PAUSE' : m.kind === 'resume' ? 'RESUMED' : 'MESSAGE'} FROM ${m.author} (${m.created_at} UTC): ${m.body}`);
+  }
+  if (r && r.paused) lines.push(`>>> TASK IS PAUSED${r.paused_by ? ` by ${r.paused_by}` : ''}. Don't save anything. Follow the messages, reply with "say", then run "wait" until it says RESUMED.`);
+  return lines.length ? lines.join('\n') + '\n' : '';
 }
 
 function printCard(r) {
@@ -142,7 +154,7 @@ async function main() {
       break;
     case 'next':
       data = await call('POST', `/api/tasks/${a}/next`);
-      if (!opts.json) return console.log(data.done ? `${data.message} (Task released.)` : `[${BOT} · task #${a}]\n${printCard(data)}`);
+      if (!opts.json) return console.log(inboxText(data) + (data.done ? `${data.message} (Task released.)` : `[${BOT} · task #${a}]\n${printCard(data)}`));
       break;
     case 'row':
       data = await call('GET', `/api/tasks/${a}/rows/${b}`);
@@ -154,6 +166,7 @@ async function main() {
         checklist: String(opts.confirm || '').split(',').map((x) => x.trim()).filter(Boolean),
       });
       if (!opts.json) {
+        process.stdout.write(inboxText(data));
         console.log(`Row ${data.row_no} written: ${data.written.map((w) => `${w.cell}="${w.value}"`).join(', ') || '(nothing to write)'}`);
         if (data.stop_and_ask) { console.log(`\nSTOP AND ASK THE USER: ${data.stop_and_ask}`); process.exitCode = 3; }
         return;
@@ -164,9 +177,28 @@ async function main() {
       if (!opts.json) return console.log(`Alert sent${data.paused ? '; task paused until the user resolves it' : ''}.`);
       break;
     case 'heartbeat':
+    case 'inbox':
       data = await call('POST', `/api/tasks/${a}/heartbeat`);
-      if (!opts.json) return console.log(data.paused ? 'PAUSED: stop and ask the user.' : 'ok');
+      if (!opts.json) return console.log(inboxText(data) || 'No new messages. Not paused.');
       break;
+    case 'say': {
+      const text = pos.slice(2).join(' ');
+      data = await call('POST', `/api/tasks/${a}/messages`, { body: text });
+      if (!opts.json) return console.log('Sent.');
+      break;
+    }
+    case 'wait': {
+      const secs = Number(opts.timeout) || 300;
+      process.stderr.write(`Waiting up to ${secs} s for a message on task #${a}…\n`);
+      data = await call('GET', `/api/tasks/${a}/wait?timeout=${secs}`);
+      if (!opts.json) {
+        const text = inboxText(data);
+        if (!text) return console.log('No new messages yet. Still paused: run "wait" again.');
+        if (!data.paused) return console.log(text + 'Not paused any more: continue with "next".');
+        return console.log(text);
+      }
+      break;
+    }
     case 'report':
       data = await call('GET', `/api/tasks/${a}/report`);
       if (!opts.json) return console.log(data.text);
@@ -180,6 +212,7 @@ async function main() {
 }
 
 main().catch((e) => {
+  if (e.data && e.data.inbox) process.stdout.write(inboxText({ inbox: e.data.inbox }));
   console.error(`ERROR: ${e.message}`);
   if (e.data && e.data.problems) console.error(e.data.problems.map((p) => `  - ${p}`).join('\n'));
   process.exitCode = e.status === 423 ? 4 : 2;

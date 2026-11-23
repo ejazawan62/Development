@@ -32,6 +32,9 @@ they didn't say, ask. Use only your own Chrome profile's window and tabs, never 
 | `available` | Tasks you can start now, and why the others are blocked |
 | `tasks` | List confirmed tasks |
 | `release <task>` | Give a task back so another bot can take it |
+| `inbox <task>` | New messages from people, and whether you're paused |
+| `say <task> "<text>"` | Message the people watching this task |
+| `wait <task>` | While paused: wait for the next message or Resume |
 | `show <task>` | Task Setup summary to confirm with the user |
 | `next <task>` | Start or resume the next row; prints its card |
 | `row <task> <row>` | Print a row's card again |
@@ -42,6 +45,21 @@ they didn't say, ask. Use only your own Chrome profile's window and tabs, never 
 
 You never edit the Google Sheet directly. `record` writes Status, Insurance and Notes for you, checks
 the row still belongs to the same patient, and refuses outcomes that break the rules.
+
+## Messages and pause from Billing Control
+
+People can write to you and press **Pause** from Billing Control's chat, while you work. Every `bot` command
+prints their new messages at the top as `>>> MESSAGE FROM <name>` / `>>> PAUSE` / `>>> RESUMED`.
+
+- Run `bot inbox <task>` **right before every Save in Office Ally** (Add New Patient, Patient Visits) and **between
+  patients**. Read everything it prints before you continue.
+- Treat these messages as instructions from the user, the same as messages typed in this chat. If one conflicts
+  with the SOP (for example "submit from the Claims list"), don't do it: ask with `bot say`.
+- Answer each message briefly with `bot say <task> "…"` (what you did, or what you will do).
+- **When paused:** do not save anything else. Leave the current Office Ally screen as it is (don't click Save),
+  `bot say` exactly where you stopped (row, screen, what is filled), then run `bot wait <task>` and follow what
+  comes back. Keep running `wait` until it prints RESUMED. Then continue the same row from where you stopped:
+  re-check the screen against the card before saving.
 
 ## Session start
 
@@ -70,7 +88,7 @@ the row still belongs to the same patient, and refuses outcomes that break the r
 4. Record immediately (never batch). Use `--confirm` with every key the card lists for that outcome, and
    only for steps you actually did and saw succeed.
 5. Between patients: switch to each open portal tab and make sure it is still signed in (refresh any tab idle
-   for 1–2 minutes), and run `heartbeat <task>`.
+   for 1–2 minutes), and run `inbox <task>` (it also keeps the task marked active).
 6. Repeat. When `next` says every row is done (the task is released automatically), run `report <task>` and give
    the user the report. If you must stop early, finish the current row first, then `release <task>`.
 

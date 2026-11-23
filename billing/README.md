@@ -119,6 +119,14 @@ Some payer portals also allow only one session per user, so give each bot its ow
 Test with two bots on fake data first: whether Claude in Chrome can drive two Chrome profiles at the same time on one
 PC depends on your Claude app version. If it can't, run each bot on its own PC/VM or Windows user account.
 
+## Talking to a bot while it works
+
+Every task page has a **Chat with bot** button (bottom right). Messages reach the bot working that task within
+seconds of its next check, and its replies, questions and alerts show up in the same chat. **Pause bot** stops it
+at its next check (it checks before every Office Ally save and between patients): it leaves the screen unsaved,
+says where it stopped, and waits for your instruction until you click **Resume**. Anyone signed in to Billing
+Control can use the chat, from any office.
+
 ## Sheet layout
 
 The header check matches columns by name (you can change any match before confirming). For claims, one row is one

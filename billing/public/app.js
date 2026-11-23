@@ -92,6 +92,89 @@ function progressBar(t) {
   return h('div', {}, bar, h('div', { class: 'muted' }, `${parts.join(' · ') || 'Not started'}${total ? ` · ${total - t.worked} left` : ''}`));
 }
 
+// ---------- realtime chat with the bot ----------
+let CHAT = null;
+function unmountChat() {
+  if (!CHAT) return;
+  clearInterval(CHAT.timer);
+  CHAT.el.remove();
+  CHAT = null;
+}
+function mountChat(taskId) {
+  unmountChat();
+  const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } } };
+  const list = h('div', { class: 'chat-list', role: 'log', 'aria-live': 'polite' });
+  const input = h('textarea', { rows: 2, placeholder: 'Message the bot… (Enter to send, Shift+Enter for a new line)', 'aria-label': 'Message' });
+  const status = h('span', { class: 'chat-status' });
+  const pauseBtn = h('button', { type: 'button', class: 'small' });
+  const badge = h('span', { class: 'chat-badge', hidden: true });
+  const toggle = h('button', { type: 'button', class: 'chat-toggle primary', 'aria-expanded': 'false' }, 'Chat with bot', badge);
+  const err = h('div');
+  const panel = h('section', { class: 'chat-panel', 'aria-label': 'Chat with the bot', hidden: true },
+    h('header', {}, h('div', {}, h('strong', {}, `Task #${taskId} chat`), status), h('div', { class: 'row' }, pauseBtn,
+      h('button', { type: 'button', class: 'small', 'aria-label': 'Close chat', onclick: () => setOpen(false) }, '✕'))),
+    list, err,
+    h('form', { class: 'chat-form', onsubmit: (ev) => { ev.preventDefault(); send(); } }, input, h('button', { type: 'submit', class: 'primary' }, 'Send')));
+  const el = h('div', { class: 'chat' }, panel, toggle);
+  document.body.append(el);
+  CHAT = { el, timer: null, lastId: 0, unread: 0, open: false, paused: false };
+
+  function setOpen(open) {
+    CHAT.open = open; panel.hidden = !open; toggle.hidden = open; toggle.setAttribute('aria-expanded', String(open));
+    store.set('chatOpen', open ? '1' : '0');
+    if (open) { CHAT.unread = 0; badge.hidden = true; list.scrollTop = list.scrollHeight; input.focus(); }
+  }
+  toggle.addEventListener('click', () => setOpen(true));
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } });
+
+  function bubble(m) {
+    const time = m.created_at.slice(11, 16);
+    if (m.sender === 'system') return h('div', { class: `chat-sys ${m.kind}` }, `${m.body} · ${time}`);
+    const mine = m.sender === 'user' && m.author === ME.name;
+    return h('div', { class: `chat-msg ${m.sender} ${mine ? 'mine' : ''} ${m.kind.startsWith('alert') ? 'alert-msg' : ''}` },
+      h('div', { class: 'chat-meta' }, `${m.sender === 'bot' ? '🤖 ' : ''}${m.author} · ${time}`), h('div', { class: 'chat-body' }, m.body));
+  }
+  function render(state) {
+    CHAT.paused = state.paused;
+    status.textContent = state.paused ? ` · Paused${state.paused_by ? ` by ${state.paused_by}` : ''}` : state.bot ? ` · ${state.bot.name} ${state.bot.live ? 'working' : 'silent'}${state.current_row ? ` · row ${state.current_row}` : ''}` : ' · no bot on this task';
+    status.className = `chat-status ${state.paused ? 'paused' : ''}`;
+    pauseBtn.textContent = state.paused ? 'Resume' : 'Pause bot';
+    pauseBtn.className = `small ${state.paused ? 'primary' : 'danger'}`;
+  }
+  async function poll() {
+    try {
+      const r = await api('GET', `/api/tasks/${taskId}/messages?after=${CHAT.lastId}`);
+      if (!CHAT) return;
+      const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+      for (const m of r.messages) {
+        list.append(bubble(m));
+        CHAT.lastId = m.id;
+        if (!CHAT.open && m.sender !== 'user') { CHAT.unread += 1; badge.textContent = String(CHAT.unread); badge.hidden = false; }
+      }
+      if (!list.children.length) list.append(h('div', { class: 'chat-empty' }, 'No messages yet. Write an instruction, or press "Pause bot" to stop it at its next check.'));
+      else { const empty = list.querySelector('.chat-empty'); if (empty && list.children.length > 1) empty.remove(); }
+      if (atBottom || r.messages.some((m) => m.sender === 'user')) list.scrollTop = list.scrollHeight;
+      render(r);
+      err.replaceChildren();
+    } catch (e) { if (CHAT) err.replaceChildren(errorBox(e)); }
+  }
+  async function send() {
+    const body = input.value.trim();
+    if (!body) return;
+    try { await api('POST', `/api/tasks/${taskId}/messages`, { body }); input.value = ''; poll(); } catch (e) { err.replaceChildren(errorBox(e)); }
+  }
+  pauseBtn.addEventListener('click', async () => {
+    try {
+      if (CHAT.paused) await api('POST', `/api/tasks/${taskId}/resume`);
+      else { await api('POST', `/api/tasks/${taskId}/pause`, { note: input.value.trim() }); input.value = ''; }
+      poll();
+    } catch (e) { err.replaceChildren(errorBox(e)); }
+  });
+  poll();
+  CHAT.timer = setInterval(poll, 3000);
+  setOpen(store.get('chatOpen') === '1');
+}
+
 // ---------- task delete ----------
 async function deleteTask(t, after) {
   const recorded = t.worked || 0;
@@ -707,6 +790,7 @@ async function viewAdmin(flash) {
 // ---------- router ----------
 let brandingLoaded = false;
 async function render() {
+  unmountChat();
   try {
     if (!brandingLoaded) { await loadBranding(); brandingLoaded = true; }
     if (!ME) {
@@ -716,9 +800,11 @@ async function render() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
     if (parts[0] === 'tasks' && parts[1]) {
       if (parts[2] === 'setup') return await viewSetup(parts[1]);
-      if (parts[2] === 'report') return await viewReport(parts[1]);
-      if (parts[2] === 'rows' && parts[3]) return await viewRow(parts[1], parts[3]);
-      return await viewWorklist(parts[1]);
+      if (parts[2] === 'report') await viewReport(parts[1]);
+      else if (parts[2] === 'rows' && parts[3]) await viewRow(parts[1], parts[3]);
+      else await viewWorklist(parts[1]);
+      if (!location.hash.endsWith('/setup')) mountChat(parts[1]);
+      return;
     }
     if (parts[0] === 'payers') return await viewPayers(parts[1]);
     if (parts[0] === 'admin' && ME.role === 'admin') return await viewAdmin();

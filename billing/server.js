@@ -1,6 +1,7 @@
 'use strict';
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { EventEmitter } = require('node:events');
 const express = require('express');
 const { open, tx, hashPassword, verifyPassword, sha256, readSettings, writeSetting } = require('./lib/db');
 const { createSheets, appsScriptAdapter, colToLetter, letterToCol, spreadsheetIdFromLink } = require('./lib/sheets');
@@ -389,7 +390,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
       throw bad(`The bot is working row ${t.current_row} of this task. Stop the bot first, or confirm again to delete anyway.`, { bot_working: true });
     }
     tx(db, () => {
-      for (const table of ['records', 'alerts', 'task_rows']) q.run(`DELETE FROM ${table} WHERE task_id = ?`, t.id);
+      for (const table of ['records', 'alerts', 'task_rows', 'messages']) q.run(`DELETE FROM ${table} WHERE task_id = ?`, t.id);
       q.run('UPDATE tasks SET copied_from = NULL WHERE copied_from = ?', t.id);
       q.run('DELETE FROM tasks WHERE id = ?', t.id);
       audit('task', t.id, 'delete', { type: t.task_type, practice: t.practice_name, tab: t.tab_name, recorded }, actorName(req));
@@ -531,13 +532,93 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   function openPausingAlerts(taskId) {
     return q.all("SELECT * FROM alerts WHERE task_id = ? AND resolved = 0 AND kind IN ('repeat_issue','login_failed','error')", taskId);
   }
+  /** Unpauses only when nobody paused it by hand and no pausing alert is open. */
+  function maybeUnpause(taskId) {
+    const t = q.get('SELECT paused_by FROM tasks WHERE id = ?', taskId);
+    if (t && !t.paused_by && !openPausingAlerts(taskId).length) q.run('UPDATE tasks SET bot_paused = 0 WHERE id = ?', taskId);
+  }
+
+  // ---------- realtime chat between people and the bot ----------
+  const chat = new EventEmitter();
+  chat.setMaxListeners(200);
+  const authorOf = (req) => (req.user ? req.user.name : botId(req).split('/').pop());
+  function postMessage(taskId, sender, author, body, kind = 'message') {
+    const r = q.run('INSERT INTO messages (task_id, sender, author, body, kind) VALUES (?,?,?,?,?)', taskId, sender, author, body, kind);
+    chat.emit(`task:${taskId}`);
+    return Number(r.lastInsertRowid);
+  }
+  /** Messages from people the bot hasn't seen yet; marks them delivered. */
+  function takeInbox(taskId) {
+    const rows = q.all("SELECT id, author, body, kind, created_at FROM messages WHERE task_id = ? AND sender != 'bot' AND delivered_at IS NULL ORDER BY id", taskId);
+    if (rows.length) q.run("UPDATE messages SET delivered_at = datetime('now') WHERE id IN (" + rows.map(() => '?').join(',') + ')', ...rows.map((r) => r.id));
+    return rows;
+  }
+  function pauseInfo(taskId) {
+    const t = q.get('SELECT bot_paused, paused_by FROM tasks WHERE id = ?', taskId);
+    return { paused: !!t.bot_paused, paused_by: t.paused_by || null, alerts: openPausingAlerts(taskId).map((a) => a.message) };
+  }
+
+  app.get('/api/tasks/:id/messages', requireAny, (req, res) => {
+    const t = getTask(req.params.id);
+    const after = Number(req.query.after) || 0;
+    const messages = q.all('SELECT * FROM messages WHERE task_id = ? AND id > ? ORDER BY id LIMIT 500', t.id, after);
+    if (req.token) takeInbox(t.id);
+    res.json({ messages, ...pauseInfo(t.id), bot: t.bot_name ? { name: t.bot_name.split('/').pop(), live: isLive(t) } : null, current_row: t.current_row });
+  });
+  app.post('/api/tasks/:id/messages', requireAny, (req, res) => {
+    const t = getTask(req.params.id);
+    const body = String((req.body || {}).body || '').trim().slice(0, 2000);
+    if (!body) throw bad('Type a message');
+    if (/\b(password|passwd|pwd|passcode)\b\s*[:=]/i.test(body)) throw bad('Never send passwords in chat.');
+    if (req.token) requireHolder(t, botId(req));
+    const id = postMessage(t.id, req.user ? 'user' : 'bot', authorOf(req), body);
+    audit('message', id, 'create', { task: t.id }, actorName(req));
+    res.status(201).json({ id });
+  });
+  app.post('/api/tasks/:id/pause', requireUser, (req, res) => {
+    const t = getTask(req.params.id);
+    if (t.state !== 'confirmed') throw bad('Only a confirmed task can be paused');
+    const note = String((req.body || {}).note || '').trim().slice(0, 2000);
+    q.run('UPDATE tasks SET bot_paused = 1, paused_by = ? WHERE id = ?', req.user.name, t.id);
+    postMessage(t.id, 'system', req.user.name, `Paused by ${req.user.name}${note ? `: ${note}` : ''}`, 'pause');
+    audit('task', t.id, 'pause', { note }, actorName(req));
+    res.json(pauseInfo(t.id));
+  });
+  app.post('/api/tasks/:id/resume', requireUser, (req, res) => {
+    const t = getTask(req.params.id);
+    q.run('UPDATE tasks SET paused_by = NULL WHERE id = ?', t.id);
+    maybeUnpause(t.id);
+    const info = pauseInfo(t.id);
+    postMessage(t.id, 'system', req.user.name, info.paused ? `${req.user.name} resumed, but an open alert still pauses the bot` : `Resumed by ${req.user.name}`, 'resume');
+    audit('task', t.id, 'resume', null, actorName(req));
+    res.json(info);
+  });
+  /** Long-poll for the bot: returns as soon as a person writes, pauses or resumes (or after timeout). */
+  app.get('/api/tasks/:id/wait', requireAny, (req, res) => {
+    const t = getTask(req.params.id);
+    if (req.token) requireHolder(t, botId(req));
+    const timeout = Math.min(Math.max(Number(req.query.timeout) || 300, 5), 900) * 1000;
+    const reply = () => {
+      clearTimeout(timer); chat.off(`task:${t.id}`, onMsg);
+      if (!res.headersSent) res.json({ inbox: req.token ? takeInbox(t.id) : [], ...pauseInfo(t.id) });
+    };
+    const onMsg = () => {
+      const pending = q.get("SELECT COUNT(*) AS n FROM messages WHERE task_id = ? AND sender != 'bot' AND delivered_at IS NULL", t.id).n;
+      if (pending) reply();
+    };
+    const timer = setTimeout(reply, timeout);
+    chat.on(`task:${t.id}`, onMsg);
+    req.on('close', () => { clearTimeout(timer); chat.off(`task:${t.id}`, onMsg); });
+    onMsg();
+  });
 
   app.post('/api/tasks/:id/next', requireAny, wrap(async (req, res) => {
     const t = getTask(req.params.id);
     if (t.state !== 'confirmed') throw new HttpError(409, 'Task is not confirmed. A person must confirm the Task Setup first.');
     if (t.bot_paused) {
       const alerts = openPausingAlerts(t.id);
-      throw new HttpError(423, 'Paused: stop and ask the user. ' + alerts.map((a) => a.message).join(' / '), { alerts });
+      const why = [t.paused_by ? `paused by ${t.paused_by}` : null, ...alerts.map((a) => a.message)].filter(Boolean).join(' / ');
+      throw new HttpError(423, `Paused: ${why}. Read the messages, then wait for "Resumed".`, { alerts, inbox: req.token ? takeInbox(t.id) : [] });
     }
     if (req.token) claimTask(t, botId(req));
     const latest = latestRecords(t.id);
@@ -555,7 +636,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
       if (!scope.in_scope) continue;
       const resumed = t.current_row === rowNo;
       q.run("UPDATE tasks SET current_row = ?, current_row_started_at = CASE WHEN current_row = ? THEN current_row_started_at ELSE datetime('now') END WHERE id = ?", rowNo, rowNo, t.id);
-      return res.json({ done: false, resumed, row_no: rowNo, card: cardFor(t, fresh.cells), outcomes_allowed: allowedOutcomes(t), special_instructions: t.special_instructions });
+      return res.json({ done: false, resumed, row_no: rowNo, card: cardFor(t, fresh.cells), outcomes_allowed: allowedOutcomes(t), special_instructions: t.special_instructions, inbox: req.token ? takeInbox(t.id) : [] });
     }
     q.run('UPDATE tasks SET current_row = NULL WHERE id = ?', t.id);
     if (req.token) releaseTask(t.id);
@@ -617,6 +698,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     res.json({
       ok: true, row_no: rowNo, written: writes.map((w) => ({ cell: `${colToLetter(w.col)}${w.row}`, value: w.value })),
       stop_and_ask: stop,
+      inbox: req.token ? takeInbox(t.id) : [], ...(req.token ? pauseInfo(t.id) : {}),
     });
   }));
 
@@ -629,6 +711,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     if (/\b(password|passwd|pwd|passcode)\b\s*[:=]/i.test(message)) throw bad('Never write passwords anywhere.');
     const r = q.run('INSERT INTO alerts (task_id, kind, message, row_no) VALUES (?,?,?,?)', t.id, kind, message, req.body.row ? Number(req.body.row) : null);
     if (kind === 'login_failed' || kind === 'error') q.run('UPDATE tasks SET bot_paused = 1 WHERE id = ?', t.id);
+    postMessage(t.id, req.user ? 'user' : 'bot', authorOf(req), `${{ otp: 'One-time code needed', login_failed: 'Login failed', question: 'Question', error: 'Error' }[kind]}: ${message}`, `alert_${kind}`);
     audit('alert', Number(r.lastInsertRowid), 'create', { task: t.id, kind }, actorName(req));
     res.status(201).json({ id: Number(r.lastInsertRowid), paused: kind === 'login_failed' || kind === 'error' });
   });
@@ -641,7 +724,8 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const a = q.get('SELECT * FROM alerts WHERE id = ?', Number(req.params.id));
     if (!a) throw new HttpError(404, 'Alert not found');
     q.run("UPDATE alerts SET resolved = 1, resolution = ?, resolved_by = ?, resolved_at = datetime('now') WHERE id = ?", String(req.body.resolution || '').slice(0, 1000), req.user.id, a.id);
-    if (!openPausingAlerts(a.task_id).length) q.run('UPDATE tasks SET bot_paused = 0 WHERE id = ?', a.task_id);
+    maybeUnpause(a.task_id);
+    postMessage(a.task_id, 'system', req.user.name, `${req.user.name} resolved: ${a.message}${req.body.resolution ? ` → ${String(req.body.resolution).slice(0, 500)}` : ''}`, 'resolve');
     audit('alert', a.id, 'resolve', null, actorName(req));
     res.json({ ok: true });
   });
@@ -650,7 +734,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const t = getTask(req.params.id);
     if (req.token) requireHolder(t, botId(req));
     q.run("UPDATE tasks SET bot_last_seen = datetime('now') WHERE id = ?", t.id);
-    res.json({ ok: true, paused: !!t.bot_paused, current_row: t.current_row });
+    res.json({ ok: true, ...pauseInfo(t.id), current_row: t.current_row, inbox: req.token ? takeInbox(t.id) : [] });
   });
 
   app.get('/api/tasks/:id/report', requireAny, (req, res) => {
