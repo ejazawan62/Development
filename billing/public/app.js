@@ -173,9 +173,11 @@ async function viewHome() {
       } }, '+ New task'))),
     msg,
     h('div', { class: 'grid' },
-      h('section', { class: 'card' }, h('div', { class: 'muted' }, 'BOT PC'),
-        bot.token ? h('div', {}, h('strong', {}, bot.token.name), ` · last seen ${bot.token.last_used_at} UTC`) : h('div', {}, 'No bot has connected yet'),
-        bot.working ? h('div', { class: 'muted' }, `Working task #${bot.working.id} · row ${bot.working.current_row} · since ${bot.working.current_row_started_at} UTC`) : null),
+      h('section', { class: 'card' }, h('div', { class: 'muted' }, `BOTS WORKING · ${bot.bots.filter((x) => x.live).length}`),
+        bot.bots.length ? h('ul', { class: 'plain' }, bot.bots.map((x) => h('li', { class: 'row' },
+          pill(x.bot, x.paused ? 'warn' : x.live ? 'blue' : ''),
+          h('span', {}, h('a', { href: `#/tasks/${x.task}` }, `Task #${x.task}`), ` · ${x.practice}${x.row ? ` · row ${x.row}` : ''}`),
+          h('span', { class: 'muted' }, x.paused ? 'paused' : x.live ? '' : 'silent 20+ min')))) : h('div', {}, bot.token ? `No bot working right now (last seen ${bot.token.last_used_at} UTC)` : 'No bot has connected yet')),
       h('section', { class: `card ${alerts.length ? 'warn' : ''}` }, h('div', { class: 'muted' }, `WAITING ON YOU · ${alerts.length}`),
         alerts.length ? alerts.slice(0, 5).map((a) => h('div', {}, h('a', { href: `#/tasks/${a.task_id}` }, `Task #${a.task_id}`), ` · ${a.kind.replace('_', ' ')}: ${a.message}`)) : h('div', {}, 'Nothing waiting')),
       h('section', { class: 'card' }, h('div', { class: 'muted' }, 'TODAY'),
@@ -190,6 +192,7 @@ async function viewHome() {
         h('td', {}, progressBar(t)),
         h('td', {}, t.state === 'setup' ? pill(`Setup incomplete${t.problems.length ? ` · ${t.problems.length}` : ''}`, 'warn')
           : t.state === 'closed' ? pill('Closed') : t.bot_paused ? pill('Paused · waiting on you', 'warn') : pill('Ready for bot', 'blue'),
+        t.bot ? h('div', { class: 'muted' }, `${t.bot.live ? 'Worked by' : 'Held by (silent)'} ${t.bot.name}`) : null,
         t.open_alerts ? h('div', { class: 'muted' }, `${t.open_alerts} open alert(s)`) : null),
         h('td', {}, (!t.worked || ME.role === 'admin') ? h('button', { type: 'button', class: 'small', 'aria-label': `Delete task ${t.id}`, onclick: () => deleteTask(t, viewHome) }, 'Delete') : null))) : h('tr', {}, h('td', { colspan: 7 }, 'No tasks yet.'))))));
 }
@@ -352,6 +355,12 @@ async function viewWorklist(id, filter = 'all') {
     portalBar(t.portal_links),
     h('nav', { class: 'tabs', 'aria-label': 'Task' }, h('a', { href: `#/tasks/${id}`, class: 'on' }, 'Worklist'), h('a', { href: `#/tasks/${id}/report` }, 'Report')),
     msg, alertEls,
+    t.bot ? h('div', { class: 'alert' }, h('strong', {}, t.bot.live ? `Worked by ${t.bot.name}` : `${t.bot.name} has been silent for 20+ minutes`),
+      h('span', { class: 'muted' }, t.current_row ? `Row ${t.current_row} in progress.` : ''),
+      h('button', { type: 'button', class: 'small', onclick: async () => {
+        if (!confirm(`Release task #${t.id} from ${t.bot.name}? Another bot can then take it.${t.bot.live ? ' Stop that bot first.' : ''}`)) return;
+        await api('POST', `/api/tasks/${id}/release`); viewWorklist(id, filter);
+      } }, 'Release')) : null,
     h('div', { class: 'stats' },
       h('div', { class: 'stat' }, h('b', {}, inScope.length), 'Rows in scope'),
       h('div', { class: 'stat' }, h('b', { class: 'ok' }, count((r) => r.record && !['held', 'not_eligible'].includes(r.record.outcome))), isClaim ? (t.task_type === 'submission' ? 'Submitted' : 'Claim Created') : 'Demo Done / already added'),

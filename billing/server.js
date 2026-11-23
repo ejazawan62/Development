@@ -12,6 +12,7 @@ const rules = require('./lib/rules');
 const SESSION_HOURS = 10;
 const REPEAT_LIMIT = 3;
 const MAX_ROWS = 3000;
+const BOT_STALE_MINUTES = 20;
 const SETUP_FIELDS = ['task_type', 'practice_name', 'provider_name', 'provider_npi', 'billing_npi', 'billing_tax_id', 'facilities',
   'oa_account', 'sheet_link', 'tab_name', 'status_col', 'insurance_col', 'notes_col', 'row_from', 'row_to', 'dos_from', 'dos_to',
   'portals', 'special_instructions', 'extra_drug_codes'];
@@ -217,7 +218,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const byOutcome = {};
     for (const r of latestRecords(t.id).values()) byOutcome[r.outcome] = (byOutcome[r.outcome] || 0) + 1;
     const total = q.get('SELECT COUNT(*) AS n FROM task_rows WHERE task_id = ?', t.id).n;
-    return { ...t, worked: recs, outcomes: byOutcome, rows_total: total, problems: t.state === 'setup' ? setupProblems(t) : [],
+    return { ...t, bot: t.bot_name ? { name: t.bot_name.split('/').pop(), live: isLive(t) } : null, worked: recs, outcomes: byOutcome, rows_total: total, problems: t.state === 'setup' ? setupProblems(t) : [],
       open_alerts: q.get('SELECT COUNT(*) AS n FROM alerts WHERE task_id = ? AND resolved = 0', t.id).n };
   }
 
@@ -362,7 +363,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   app.post('/api/tasks/:id/edit-setup', requireUser, (req, res) => {
     const t = getTask(req.params.id);
     if (t.state !== 'confirmed') throw bad('Only a confirmed task can go back to setup');
-    q.run("UPDATE tasks SET state = 'setup', current_row = NULL, bot_paused = 1 WHERE id = ?", t.id);
+    q.run("UPDATE tasks SET state = 'setup', current_row = NULL, bot_paused = 1, bot_name = NULL WHERE id = ?", t.id);
     audit('task', t.id, 'edit_setup', null, actorName(req));
     res.json(publicTask(getTask(t.id)));
   });
@@ -386,7 +387,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
 
   app.post('/api/tasks/:id/close', requireUser, (req, res) => {
     const t = getTask(req.params.id);
-    q.run("UPDATE tasks SET state = 'closed', current_row = NULL, closed_at = datetime('now') WHERE id = ?", t.id);
+    q.run("UPDATE tasks SET state = 'closed', current_row = NULL, bot_name = NULL, closed_at = datetime('now') WHERE id = ?", t.id);
     audit('task', t.id, 'close', null, actorName(req));
     res.json(publicTask(getTask(t.id)));
   });
@@ -445,6 +446,76 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     });
   });
 
+  // ---------- parallel bots ----------
+  // A bot is "<token name>/<bot name>". A task belongs to one bot at a time; a bot works one task at a time.
+  function botId(req) {
+    if (!req.token) return null;
+    const name = String(req.get('x-bot-name') || 'bot').trim().slice(0, 40);
+    if (!/^[A-Za-z0-9 _.-]+$/.test(name)) throw bad('Bot name may only use letters, numbers, spaces, dot, dash and underscore');
+    return `${req.token.name}/${name}`;
+  }
+  const isLive = (t) => t.bot_name && t.bot_last_seen && (Date.now() - Date.parse(t.bot_last_seen.replace(' ', 'T') + 'Z')) < BOT_STALE_MINUTES * 60000;
+  const normOA = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  function rowsOverlap(a, b) {
+    const af = a.row_from || 2; const at = a.row_to || Infinity;
+    const bf = b.row_from || 2; const bt = b.row_to || Infinity;
+    return af <= bt && bf <= at;
+  }
+  /** Gives the task to this bot, or explains why not. */
+  function claimTask(t, bot) {
+    if (t.bot_name && t.bot_name !== bot && isLive(t)) {
+      throw new HttpError(409, `Task #${t.id} is being worked by ${t.bot_name.split('/').pop()}. Pick another task.`);
+    }
+    const others = q.all("SELECT * FROM tasks WHERE state = 'confirmed' AND id != ? AND bot_name IS NOT NULL", t.id).map(hydrate).filter(isLive);
+    const mine = others.find((o) => o.bot_name === bot);
+    if (mine) throw new HttpError(409, `This bot is already working task #${mine.id}. One bot works one task at a time: finish it, or release it in Billing Control.`);
+    for (const o of others) {
+      const who = o.bot_name.split('/').pop();
+      if (normOA(o.oa_account) && normOA(o.oa_account) === normOA(t.oa_account)) {
+        throw new HttpError(409, `Office Ally account "${t.oa_account}" is in use by ${who} on task #${o.id}. Two bots on one Office Ally login can log each other out or switch the practice. Wait, or use a task with a different Office Ally account.`);
+      }
+      if (o.spreadsheet_id === t.spreadsheet_id && o.tab_name === t.tab_name && rowsOverlap(o, t)) {
+        throw new HttpError(409, `${who} is working the same sheet tab "${t.tab_name}" (task #${o.id}) with overlapping rows. Two bots on the same rows could create duplicates.`);
+      }
+    }
+    if (t.bot_name !== bot) {
+      q.run("UPDATE tasks SET bot_name = ?, bot_claimed_at = datetime('now') WHERE id = ?", bot, t.id);
+      audit('task', t.id, 'bot_claim', { bot, from: t.bot_name || null }, bot);
+    }
+    q.run("UPDATE tasks SET bot_last_seen = datetime('now') WHERE id = ?", t.id);
+  }
+  function requireHolder(t, bot) {
+    if (t.bot_name && t.bot_name !== bot) throw new HttpError(409, `Task #${t.id} belongs to ${t.bot_name.split('/').pop()}, not this bot.`);
+  }
+  const releaseTask = (id) => q.run('UPDATE tasks SET bot_name = NULL, bot_claimed_at = NULL WHERE id = ?', id);
+
+  app.post('/api/tasks/:id/release', requireAny, (req, res) => {
+    const t = getTask(req.params.id);
+    if (req.token) requireHolder(t, botId(req));
+    releaseTask(t.id);
+    audit('task', t.id, 'bot_release', { bot: t.bot_name }, actorName(req));
+    res.json({ ok: true });
+  });
+
+  /** For a bot: confirmed tasks it could start now, and why the others can't. */
+  app.get('/api/bot/available', requireAny, (req, res) => {
+    const bot = botId(req);
+    const out = [];
+    for (const t of q.all("SELECT * FROM tasks WHERE state = 'confirmed' ORDER BY id").map(hydrate)) {
+      let reason = null;
+      if (t.bot_paused) reason = 'paused: waiting on a person';
+      else if (bot) {
+        try {
+          // Dry run of the claim rules without saving.
+          db.exec('SAVEPOINT avail');
+          claimTask(t, bot);
+        } catch (e) { reason = e.message; } finally { db.exec('ROLLBACK TO avail'); db.exec('RELEASE avail'); }
+      }
+      out.push({ id: t.id, task_type: t.task_type, practice_name: t.practice_name, provider_name: t.provider_name, tab_name: t.tab_name, bot: t.bot_name && isLive(t) ? t.bot_name.split('/').pop() : null, available: !reason, reason });
+    }
+    res.json(out);
+  });
+
   function openPausingAlerts(taskId) {
     return q.all("SELECT * FROM alerts WHERE task_id = ? AND resolved = 0 AND kind IN ('repeat_issue','login_failed','error')", taskId);
   }
@@ -456,7 +527,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
       const alerts = openPausingAlerts(t.id);
       throw new HttpError(423, 'Paused: stop and ask the user. ' + alerts.map((a) => a.message).join(' / '), { alerts });
     }
-    q.run("UPDATE tasks SET bot_last_seen = datetime('now') WHERE id = ?", t.id);
+    if (req.token) claimTask(t, botId(req));
     const latest = latestRecords(t.id);
     let candidates;
     if (t.current_row && !latest.has(t.current_row)) candidates = [t.current_row];
@@ -475,6 +546,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
       return res.json({ done: false, resumed, row_no: rowNo, card: cardFor(t, fresh.cells), outcomes_allowed: allowedOutcomes(t), special_instructions: t.special_instructions });
     }
     q.run('UPDATE tasks SET current_row = NULL WHERE id = ?', t.id);
+    if (req.token) releaseTask(t.id);
     res.json({ done: true, message: 'Every in-scope row has an outcome. Give the user the end-of-session report.' });
   }));
 
@@ -483,6 +555,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const rowNo = Number(req.params.row);
     const b = req.body || {};
     if (t.state !== 'confirmed') throw new HttpError(409, 'Task is not confirmed');
+    if (req.token) requireHolder(t, botId(req));
     if (req.token && t.current_row !== rowNo) throw new HttpError(409, t.current_row ? `Finish row ${t.current_row} first (one patient at a time).` : 'Call "next" to start a row before recording it.');
     const latest = latestRecords(t.id).get(rowNo);
     if (latest && !(req.user && b.correction)) throw new HttpError(409, `Row ${rowNo} already has an outcome (${latest.outcome}). A person can record a correction in the app.`);
@@ -563,6 +636,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
 
   app.post('/api/tasks/:id/heartbeat', requireAny, (req, res) => {
     const t = getTask(req.params.id);
+    if (req.token) requireHolder(t, botId(req));
     q.run("UPDATE tasks SET bot_last_seen = datetime('now') WHERE id = ?", t.id);
     res.json({ ok: true, paused: !!t.bot_paused, current_row: t.current_row });
   });
@@ -721,8 +795,10 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   app.get('/api/bot-status', requireUser, (req, res) => {
     const tok = q.get('SELECT name, last_used_at FROM api_tokens WHERE revoked = 0 AND last_used_at IS NOT NULL ORDER BY last_used_at DESC LIMIT 1');
     const working = q.get("SELECT id, current_row, current_row_started_at, bot_paused FROM tasks WHERE state = 'confirmed' AND current_row IS NOT NULL ORDER BY current_row_started_at DESC LIMIT 1");
+    const bots = q.all("SELECT * FROM tasks WHERE state = 'confirmed' AND bot_name IS NOT NULL ORDER BY bot_claimed_at").map(hydrate)
+      .map((t) => ({ bot: t.bot_name.split('/').pop(), pc: t.bot_name.split('/')[0], task: t.id, practice: t.practice_name, row: t.current_row, last_seen: t.bot_last_seen, live: isLive(t), paused: !!t.bot_paused }));
     const today = q.all(`SELECT outcome, COUNT(*) AS n FROM records WHERE date(created_at) = date('now') GROUP BY outcome`);
-    res.json({ token: tok || null, working: working || null, today });
+    res.json({ token: tok || null, working: working || null, today, bots });
   });
 
   // ---------- Google Sheets connection (Apps Script) ----------

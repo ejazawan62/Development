@@ -1,0 +1,95 @@
+'use strict';
+const { test, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { open, hashPassword } = require('../lib/db');
+const { localAdapter } = require('../lib/sheets');
+const { createApp } = require('../server');
+const { seed } = require('../lib/seed-demo');
+
+let server; let base; let cookie; let token; let dir; let db;
+
+async function req(method, p, body, bot) {
+  const headers = { 'content-type': 'application/json' };
+  if (bot) { headers.authorization = `Bearer ${token}`; headers['x-bot-name'] = bot; } else { headers.cookie = cookie; headers['x-requested-with'] = 'fetch'; }
+  const res = await fetch(base + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+}
+
+before(async () => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'billing-par-'));
+  const db0 = open(path.join(dir, 'billing.db'));
+  db0.prepare('INSERT INTO users (name, email, password_hash, role) VALUES (?,?,?,?)').run('T', 'admin@example.com', hashPassword('test-password-123'), 'admin');
+  db0.close();
+  const { sheetsFile } = seed(dir);
+  db = open(path.join(dir, 'billing.db'));
+  // Give the two demo tasks different Office Ally accounts so two bots may run side by side.
+  db.prepare("UPDATE tasks SET oa_account = 'OA account B' WHERE id = 2").run();
+  const app = createApp({ db, sheets: localAdapter(sheetsFile) });
+  await new Promise((r) => { server = app.listen(0, '127.0.0.1', r); });
+  base = `http://127.0.0.1:${server.address().port}`;
+  const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'admin@example.com', password: 'test-password-123' }) });
+  cookie = login.headers.get('set-cookie').split(';')[0];
+  token = (await req('POST', '/api/tokens', { name: 'OFFICE-PC' })).data.token;
+  for (const id of [1, 2]) {
+    await req('POST', `/api/tasks/${id}/check-sheet`);
+    const c = await req('POST', `/api/tasks/${id}/confirm`);
+    assert.equal(c.status, 200, JSON.stringify(c.data));
+  }
+});
+after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+test('two bots work two tasks at the same time; neither can take the other\'s', async () => {
+  const a = await req('POST', '/api/tasks/1/next', null, 'Bot 1');
+  assert.equal(a.status, 200, JSON.stringify(a.data));
+  const clash = await req('POST', '/api/tasks/1/next', null, 'Bot 2');
+  assert.equal(clash.status, 409);
+  assert.match(clash.data.error, /being worked by Bot 1/);
+
+  const avail = (await req('GET', '/api/bot/available', null, 'Bot 2')).data;
+  assert.equal(avail.find((x) => x.id === 1).available, false);
+  assert.equal(avail.find((x) => x.id === 2).available, true);
+
+  const b = await req('POST', '/api/tasks/2/next', null, 'Bot 2');
+  assert.equal(b.status, 200, JSON.stringify(b.data));
+
+  // Each records only on its own task.
+  const wrong = await req('POST', `/api/tasks/2/rows/${b.data.row_no}/record`, { outcome: 'held', notes: 'Held — x' }, 'Bot 1');
+  assert.equal(wrong.status, 409);
+  const ok = await req('POST', `/api/tasks/2/rows/${b.data.row_no}/record`, { outcome: 'held', notes: 'Held — x' }, 'Bot 2');
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+
+  const status = (await req('GET', '/api/bot-status')).data;
+  assert.deepEqual(status.bots.map((x) => [x.bot, x.task]).sort(), [['Bot 1', 1], ['Bot 2', 2]]);
+});
+
+test('same Office Ally account or overlapping rows can\'t run in parallel', async () => {
+  await req('POST', '/api/tasks/2/release', null, 'Bot 2');
+  db.prepare("UPDATE tasks SET oa_account = 'Riverside FM DEMO account' WHERE id = 2").run();
+  const r = await req('POST', '/api/tasks/2/next', null, 'Bot 2');
+  assert.equal(r.status, 409);
+  assert.match(r.data.error, /Office Ally account/);
+
+  // Same tab, overlapping rows (task 3 copies task 1 with another OA account).
+  db.prepare("UPDATE tasks SET oa_account = 'OA account B' WHERE id = 2").run();
+  const t3 = await req('POST', '/api/tasks', { copy_from: 1 });
+  await req('PUT', `/api/tasks/${t3.data.id}`, { oa_account: 'OA account C' });
+  await req('POST', `/api/tasks/${t3.data.id}/check-sheet`);
+  assert.equal((await req('POST', `/api/tasks/${t3.data.id}/confirm`)).status, 200);
+  const o = await req('POST', `/api/tasks/${t3.data.id}/next`, null, 'Bot 3');
+  assert.equal(o.status, 409);
+  assert.match(o.data.error, /same sheet tab/);
+});
+
+test('a person can release a task; a silent bot loses it after 20 minutes', async () => {
+  assert.equal((await req('POST', '/api/tasks/1/release')).status, 200);
+  const take = await req('POST', '/api/tasks/1/next', null, 'Bot 2');
+  assert.equal(take.status, 200, JSON.stringify(take.data));
+  assert.equal(take.data.resumed, true, 'picks up the row Bot 1 left unfinished');
+
+  db.prepare("UPDATE tasks SET bot_last_seen = datetime('now', '-30 minutes') WHERE id = 1").run();
+  const over = await req('POST', '/api/tasks/1/next', null, 'Bot 1');
+  assert.equal(over.status, 200, JSON.stringify(over.data));
+});

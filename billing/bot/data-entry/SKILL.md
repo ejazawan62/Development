@@ -21,11 +21,17 @@ node "$BILLING_HOME/bin/bot.js" <command>
 ```
 
 `BILLING_HOME`, `BILLING_URL` and `BILLING_TOKEN` are already set on this PC. Never print, echo or share the token.
-Below, `bot` means `node "$BILLING_HOME/bin/bot.js"`.
+Below, `bot` means `node "$BILLING_HOME/bin/bot.js" --as "<your bot name>"`.
+
+**Your bot name.** Several bots can run at the same time, each in its own Chrome profile. The user tells you your
+name when they start you ("You are Bot 2, start task 14"). Put it in **every** command with `--as "Bot 2"`. If
+they didn't say, ask. Use only your own Chrome profile's window and tabs, never another bot's.
 
 | Command | Use |
 | --- | --- |
+| `available` | Tasks you can start now, and why the others are blocked |
 | `tasks` | List confirmed tasks |
+| `release <task>` | Give a task back so another bot can take it |
 | `show <task>` | Task Setup summary to confirm with the user |
 | `next <task>` | Start or resume the next row; prints its card |
 | `row <task> <row>` | Print a row's card again |
@@ -38,6 +44,10 @@ You never edit the Google Sheet directly. `record` writes Status, Insurance and 
 the row still belongs to the same patient, and refuses outcomes that break the rules.
 
 ## Session start
+
+0. If the user didn't name a task, run `bot available` and ask which READY task to work. Work **one task at a
+   time**. If `next` says the task belongs to another bot, or the Office Ally account or rows are in use by another
+   bot, don't force it: tell the user and wait.
 
 1. `bot show <task>`. Paste the summary to the user and ask them to confirm the practice,
    provider, sheet, tab and columns. **Wait for a yes.** Never reuse a setup from another task.
@@ -61,7 +71,8 @@ the row still belongs to the same patient, and refuses outcomes that break the r
    only for steps you actually did and saw succeed.
 5. Between patients: switch to each open portal tab and make sure it is still signed in (refresh any tab idle
    for 1–2 minutes), and run `heartbeat <task>`.
-6. Repeat. When `next` says every row is done, run `report <task>` and give the user the report.
+6. Repeat. When `next` says every row is done (the task is released automatically), run `report <task>` and give
+   the user the report. If you must stop early, finish the current row first, then `release <task>`.
 
 ### Demo creation (Part A)
 

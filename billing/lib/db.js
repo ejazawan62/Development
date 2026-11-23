@@ -167,6 +167,11 @@ function open(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  // Columns added after the first release: add them to existing databases.
+  const have = new Set(db.prepare('PRAGMA table_info(tasks)').all().map((c) => c.name));
+  for (const [col, type] of [['bot_name', 'TEXT'], ['bot_claimed_at', 'TEXT']]) {
+    if (!have.has(col)) db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
+  }
   // Starter portal links (all practices). Admins can change them in Settings.
   if (!db.prepare("SELECT value FROM settings WHERE key = 'portals_seeded'").get()) {
     const add = db.prepare('INSERT INTO portals (practice_id, name, url, sort) VALUES (NULL, ?, ?, ?)');

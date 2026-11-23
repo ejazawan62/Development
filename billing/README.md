@@ -100,6 +100,25 @@ It asks you in chat for one-time codes, and stops when a login fails twice or th
 
 The bot token can only work confirmed tasks. It cannot edit Task Setups, payer lists or users.
 
+## Running several bots at once
+
+Each bot is a separate Claude conversation driving **its own Chrome profile** (its own Office Ally and portal
+logins), on the same PC or on different PCs/VMs.
+
+1. In Chrome, create one profile per bot (profile icon → **Add**), for example "Bot 1", "Bot 2". In each profile,
+   install Claude in Chrome and sign in to Office Ally and the portals, and save the passwords.
+2. Start each bot with its name: *"You are Bot 2. Start task 14."* The bot adds `--as "Bot 2"` to every command.
+3. Billing Control keeps them apart:
+   - a task belongs to one bot at a time, and one bot works one task at a time;
+   - two bots can't use the **same Office Ally account** at the same time (one login in two places can log the other
+     out or switch its practice). Use separate Office Ally logins per bot, or give parallel tasks different accounts;
+   - two bots can't work **overlapping rows of the same sheet tab**;
+   - a bot that is silent for 20 minutes loses its claim, and a person can **Release** a task from the worklist.
+
+Some payer portals also allow only one session per user, so give each bot its own portal users where you can.
+Test with two bots on fake data first: whether Claude in Chrome can drive two Chrome profiles at the same time on one
+PC depends on your Claude app version. If it can't, run each bot on its own PC/VM or Windows user account.
+
 ## Sheet layout
 
 The header check matches columns by name (you can change any match before confirming). For claims, one row is one

@@ -5,10 +5,12 @@
 
 const BASE = (process.env.BILLING_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const TOKEN = process.env.BILLING_TOKEN;
+let BOT = process.env.BILLING_BOT || 'Bot 1';
 
 const HELP = `Usage: bot <command> [args]
 
-  tasks                               List confirmed tasks ready for the bot
+  available                           Tasks this bot can start now (and why others can't)
+  tasks                               List confirmed tasks
   show <task>                         Task Setup summary to confirm with the user
   next <task>                         Start (or resume) the next row: prints its card
   row <task> <row>                    Show a row's card again
@@ -17,6 +19,10 @@ const HELP = `Usage: bot <command> [args]
   alert <task> --kind otp|login_failed|question|error --message "<text>" [--row <n>]
   heartbeat <task>                    Tell the app the bot is still working
   report <task>                       End-of-session report
+  release <task>                      Give the task back (another bot can take it)
+
+Every command takes --as "<bot name>" (or set BILLING_BOT). Each bot that runs at the same time needs its own
+name, e.g. --as "Bot 2". One bot works one task at a time.
 
 Outcomes: demo_done, already_added, not_eligible, held (demo) · claim_created, held (claim) · submitted, held (submission)
 Add --json to any command for raw JSON.`;
@@ -29,6 +35,7 @@ function parseArgs(argv) {
     if (a.startsWith('--')) {
       const k = a.slice(2);
       if (k === 'json') opts.json = true;
+      else if (k === 'as') { BOT = argv[i + 1]; i++; }
       else { opts[k] = argv[i + 1]; i++; }
     } else pos.push(a);
   }
@@ -39,7 +46,7 @@ async function call(method, path, body) {
   if (!TOKEN) throw new Error('BILLING_TOKEN is not set. Create a bot token in Billing Control → Bot access.');
   const res = await fetch(BASE + path, {
     method,
-    headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json', 'x-bot-name': BOT },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
@@ -101,6 +108,17 @@ async function main() {
         return console.log(data.map((t) => `#${t.id} ${t.task_type} · ${t.practice_name} · ${t.provider_name} · ${t.tab_name} rows ${t.row_from || 2}-${t.row_to || 'end'} · worked ${t.worked}/${t.rows_total}${t.bot_paused ? ' · PAUSED' : ''}`).join('\n'));
       }
       break;
+    case 'available':
+      data = await call('GET', '/api/bot/available');
+      if (!opts.json) {
+        if (!data.length) return console.log('No confirmed tasks. Ask the user to confirm a Task Setup in Billing Control.');
+        return console.log(data.map((t) => `${t.available ? 'READY  ' : 'BLOCKED'} #${t.id} ${t.task_type} · ${t.practice_name} · ${t.provider_name} · ${t.tab_name}${t.bot ? ` · worked by ${t.bot}` : ''}${t.reason ? `\n         ${t.reason}` : ''}`).join('\n'));
+      }
+      break;
+    case 'release':
+      data = await call('POST', `/api/tasks/${a}/release`);
+      if (!opts.json) return console.log(`Task #${a} released by ${BOT}.`);
+      break;
     case 'show':
       data = await call('GET', `/api/tasks/${a}`);
       if (!opts.json) {
@@ -124,7 +142,7 @@ async function main() {
       break;
     case 'next':
       data = await call('POST', `/api/tasks/${a}/next`);
-      if (!opts.json) return console.log(data.done ? data.message : printCard(data));
+      if (!opts.json) return console.log(data.done ? `${data.message} (Task released.)` : `[${BOT} · task #${a}]\n${printCard(data)}`);
       break;
     case 'row':
       data = await call('GET', `/api/tasks/${a}/rows/${b}`);

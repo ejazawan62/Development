@@ -157,6 +157,11 @@ test('submission task: holds, NDC, provider, repeated-issue pause', async () => 
   assert.deepEqual(chk.data.missing, []);
   const conf = await req('POST', '/api/tasks/2/confirm');
   assert.equal(conf.status, 200, JSON.stringify(conf.data));
+  // The bot still holds task 1 (row 7 unfinished); it must release it before taking another task.
+  const busy = await req('POST', '/api/tasks/2/next', null, { bot: true });
+  assert.equal(busy.status, 409);
+  assert.match(busy.data.error, /already working task #1/);
+  assert.equal((await req('POST', '/api/tasks/1/release', null, { bot: true })).status, 200);
   const claimChecks = ['demo_exists', 'insurance_active_on_dos', 'providers_from_task_setup', 'facility_box32_matches', 'line_review_done', 'saved_in_patient_visits_only'];
 
   // Row 2 passes.
