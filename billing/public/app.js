@@ -747,11 +747,12 @@ function portalsCard(portals, practices, msg) {
         } }, 'Add')))))));
 }
 
-async function viewAdmin(flash) {
+async function viewAdmin(flash, newToken) {
   const [users, tokens, gs, portals, practices] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets'), api('GET', '/api/portals'), api('GET', '/api/practices')]);
   const msg = h('div');
   const nu = { name: h('input'), username: h('input', { autocapitalize: 'none', spellcheck: 'false', placeholder: 'e.g. nabeel' }), password: h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Blank = create one for me' }), role: h('select', {}, h('option', { value: 'staff' }, 'staff'), h('option', { value: 'admin' }, 'admin')) };
   const userMsg = h('div');
+  const tokenMsg = h('div');
   const showPassword = (who, username, password) => {
     userMsg.replaceChildren(h('div', { class: 'success' },
       h('div', {}, `Password for ${who} (username `, h('span', { class: 'typed' }, username), '):'),
@@ -763,11 +764,12 @@ async function viewAdmin(flash) {
   shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, sheetsCard(gs, msg), brandingCard(msg), portalsCard(portals, practices, msg),
     h('section', { class: 'card' }, h('h2', {}, 'Bot tokens'),
       h('div', { class: 'muted' }, 'The bot PC uses a token instead of a password. It can only work confirmed tasks: it cannot change Task Setups, payer lists or users.'),
+      tokenMsg,
       h('div', { class: 'row' }, tokName, h('button', { type: 'button', class: 'primary', onclick: async () => {
         try {
           const t = await api('POST', '/api/tokens', { name: tokName.value });
-          msg.replaceChildren(h('div', { class: 'success' }, `Token for ${t.name} (shown once, store it on the bot PC as BILLING_TOKEN): `, h('span', { class: 'typed' }, t.token), ' ', copyBtn(t.token)));
-        } catch (e) { msg.replaceChildren(errorBox(e)); }
+          await viewAdmin(null, t);
+        } catch (e) { tokenMsg.replaceChildren(errorBox(e)); }
       } }, 'Create token')),
       h('table', {}, h('tbody', {}, tokens.map((t) => h('tr', { class: t.revoked ? 'dim' : '' }, h('td', {}, t.name), h('td', { class: 'muted' }, `created ${t.created_at} · last used ${t.last_used_at || 'never'}`),
         h('td', {}, t.revoked ? 'revoked' : h('button', { type: 'button', class: 'small', onclick: async () => { if (confirm(`Revoke ${t.name}?`)) { await api('POST', `/api/tokens/${t.id}/revoke`); viewAdmin(); } } }, 'Revoke'))))))),
@@ -791,6 +793,13 @@ async function viewAdmin(flash) {
         } catch (e) { msg.replaceChildren(errorBox(e)); }
       } }, 'Add user')));
   if (flash) showPassword(flash.who, flash.username, flash.password);
+  if (newToken) {
+    tokenMsg.replaceChildren(h('div', { class: 'success' },
+      h('div', {}, `New token for ${newToken.name}:`),
+      h('div', { class: 'row' }, h('span', { class: 'typed', style: null }, newToken.token), copyBtn(newToken.token)),
+      h('div', { class: 'muted' }, 'Shown only this once. Copy it now and paste it into PowerShell on the bot PC (setx BILLING_TOKEN "…"). Don\'t paste it into chats or emails.')));
+    tokenMsg.scrollIntoView({ block: 'center' });
+  }
 }
 
 // ---------- router ----------
