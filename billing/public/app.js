@@ -94,6 +94,8 @@ function progressBar(t) {
 
 // ---------- realtime chat with the bot ----------
 let CHAT = null;
+let PENDING_SAVE = null;
+window.addEventListener('beforeunload', () => { if (PENDING_SAVE) PENDING_SAVE(); });
 function unmountChat() {
   if (!CHAT) return;
   clearInterval(CHAT.timer);
@@ -332,7 +334,28 @@ async function viewSetup(id) {
     portals: portalBoxes.map((l) => l.querySelector('input')).filter((i) => i.checked).map((i) => i.value),
     special_instructions: special.value, extra_drug_codes: drug.value,
   });
-  const save = async () => api('PUT', `/api/tasks/${id}`, collect());
+  // Auto-save: every change is saved shortly after typing stops, and right away when leaving the page.
+  const saveState = h('span', { class: 'muted save-state', 'aria-live': 'polite' }, 'All changes saved');
+  let saveTimer = null;
+  let lastSaved = null;
+  const save = async () => {
+    clearTimeout(saveTimer); saveTimer = null;
+    const body = collect();
+    const json = JSON.stringify(body);
+    if (json === lastSaved) return;
+    saveState.textContent = 'Saving…';
+    try {
+      await api('PUT', `/api/tasks/${id}`, body);
+      lastSaved = json;
+      saveState.textContent = 'All changes saved';
+    } catch (e) { saveState.textContent = 'Not saved'; throw e; }
+  };
+  const scheduleSave = () => {
+    saveState.textContent = 'Unsaved changes…';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { save().then(refreshProblems).catch((e) => msg.replaceChildren(errorBox(e))); }, 700);
+  };
+  PENDING_SAVE = () => { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; fetch(`/api/tasks/${id}`, { method: 'PUT', keepalive: true, headers: { 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: JSON.stringify(collect()) }); } };
 
   async function runCheck() {
     msg.replaceChildren();
@@ -390,9 +413,9 @@ async function viewSetup(id) {
   shell('tasks',
     h('div', { class: 'row' }, h('h1', {}, `Task #${id} · Task Setup`), h('span', { class: 'muted' }, t.copied_from ? `Copied from task #${t.copied_from}: check every field` : 'Starts empty. Nothing is reused unless you choose it.'),
       h('button', { type: 'button', class: 'end', onclick: () => deleteTask(t, () => { location.hash = '#/'; }) }, 'Delete task'),
-      h('button', { type: 'button', onclick: async () => { try { await save(); msg.replaceChildren(h('div', { class: 'success' }, 'Saved.')); refreshProblems(); } catch (e) { msg.replaceChildren(errorBox(e)); } } }, 'Save')),
+      saveState),
     msg,
-    h('div', { class: 'split' },
+    h('div', { class: 'split', oninput: scheduleSave, onchange: scheduleSave, onclick: (ev) => { if (ev.target.closest('button') && /Remove|Add location/.test(ev.target.textContent)) scheduleSave(); } },
       h('div', { class: 'main' },
         h('section', { class: 'card' }, h('h2', {}, '1 · Task type'), h('div', { class: 'row' }, typeRadios),
           h('div', { class: 'muted' }, 'Sheet status written: Demo creation → "Demo Done" / "Already demo added" · Claim creation → "Claim Created" · Claim submission → "Submitted" · held rows → "Held" plus the reason in Notes')),
@@ -430,6 +453,7 @@ async function viewSetup(id) {
           h('label', {}, 'Special instructions for this task', special))),
       checkOut));
   checkOut.append(confirmCard);
+  lastSaved = JSON.stringify(collect());
   refreshProblems();
 }
 
@@ -811,6 +835,7 @@ async function viewAdmin(flash, newToken) {
 let brandingLoaded = false;
 async function render() {
   unmountChat();
+  if (PENDING_SAVE) { PENDING_SAVE(); PENDING_SAVE = null; }
   try {
     if (!brandingLoaded) { await loadBranding(); brandingLoaded = true; }
     if (!ME) {
