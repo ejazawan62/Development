@@ -51,14 +51,17 @@ Settings (environment variables):
 | --- | --- | --- |
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the app listens. Keep `127.0.0.1` unless other office PCs need it (then put it behind HTTPS) |
 | `DATA_DIR` | `billing/data` | Database (`billing.db`). Back this folder up |
-| `GOOGLE_SERVICE_ACCOUNT_FILE` | not set | Path to the Google service account key. **Not set = test mode with local fake sheets** |
+| `GOOGLE_SERVICE_ACCOUNT_FILE` | not set | Optional: Google service account key. Without it, connect Google in Settings; until then the app runs in test mode with local fake sheets |
 
 ### Connect Google Sheets
 
-1. In Google Cloud Console: create a project, enable the **Google Sheets API**, create a **service account**
-   and download its JSON key. Keep the key file on the office PC only (never in the repo or chat).
-2. Start the app with `GOOGLE_SERVICE_ACCOUNT_FILE=/path/to/key.json npm start`.
-3. Share each billing sheet with the service account's email (shown on the Task Setup page) as **Editor**.
+The easy way (no Google Cloud console): sign in to Billing Control as admin, open **Settings → Google Sheets
+connection** and follow the 5 steps on screen. You paste a small script into **script.google.com** under your
+own Google account and deploy it as a web app. After that, any sheet that account can edit works by pasting
+its link into a Task Setup. The script contains a secret key: don't share it. **Make a new one** replaces the key.
+
+Alternative for IT-managed setups: a Google Cloud service account. Start the app with
+`GOOGLE_SERVICE_ACCOUNT_FILE=/path/to/key.json` and share each sheet with the service account's email as Editor.
 
 ### Try it with fake data first
 

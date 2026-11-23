@@ -46,6 +46,10 @@ function seed(dataDir) {
   const sheetsFile = path.join(dataDir, 'local-sheets.json');
   fs.writeFileSync(sheetsFile, JSON.stringify(demoSheets(), null, 2));
   const db = open(path.join(dataDir, 'billing.db'));
+  if (db.prepare("SELECT value FROM settings WHERE key = 'apps_script_url'").get()) {
+    db.close();
+    throw new Error('Google Sheets is connected; demo data is only for test mode.');
+  }
   let admin = db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
   let createdPassword = null;
   if (!admin) {

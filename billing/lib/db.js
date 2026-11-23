@@ -130,6 +130,10 @@ CREATE TABLE IF NOT EXISTS audit (
   actor TEXT,
   at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_records_task ON records(task_id, row_no);
 CREATE INDEX IF NOT EXISTS idx_alerts_task ON alerts(task_id, resolved);
 CREATE INDEX IF NOT EXISTS idx_payers_practice ON payers(practice_id);
@@ -172,4 +176,14 @@ function tx(db, fn) {
   }
 }
 
-module.exports = { open, tx, hashPassword, verifyPassword, sha256 };
+function readSettings(db) {
+  const out = {};
+  for (const r of db.prepare('SELECT key, value FROM settings').all()) out[r.key] = r.value;
+  return out;
+}
+function writeSetting(db, key, value) {
+  if (value == null) db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+  else db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
+}
+
+module.exports = { open, tx, hashPassword, verifyPassword, sha256, readSettings, writeSetting };

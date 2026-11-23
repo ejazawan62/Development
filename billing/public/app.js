@@ -67,13 +67,13 @@ function progressBar(t) {
 function shell(active, ...content) {
   const link = (href, text, key) => h('a', { href, class: active === key ? 'on' : '' }, text);
   const nav = [link('#/', 'Tasks', 'tasks'), link('#/payers', 'Payer lists', 'payers')];
-  if (ME.role === 'admin') nav.push(link('#/admin', 'Users & bot access', 'admin'));
+  if (ME.role === 'admin') nav.push(link('#/admin', 'Settings', 'admin'));
   const page = h('div', {},
     h('header', { class: 'top' },
       h('div', { class: 'brand' }, 'Billing Control'),
       h('nav', { 'aria-label': 'Main' }, nav),
       h('div', { class: 'who' }, `${ME.name} · ${ME.role}`, h('button', { type: 'button', class: 'small', onclick: async () => { await api('POST', '/api/logout'); ME = null; render(); } }, 'Sign out'))),
-    ME.sheets_mode === 'local' ? h('div', { class: 'banner-demo' }, 'Test mode: using local test sheets with fake data. Connect Google Sheets before real work (see README).') : null,
+    ME.sheets_mode === 'local' ? h('div', { class: 'banner-demo' }, 'Test mode: using local test sheets with fake data. ', ME.role === 'admin' ? h('a', { href: '#/admin' }, 'Connect Google Sheets') : 'An admin can connect Google Sheets', ' before real work.') : null,
     h('main', {}, content));
   $app.replaceChildren(page);
 }
@@ -234,6 +234,7 @@ async function viewSetup(id) {
         h('section', { class: 'card' }, h('h2', {}, '4 · Google Sheet'),
           h('label', {}, 'Google Sheet link', input('sheet_link', { placeholder: 'https://docs.google.com/spreadsheets/d/…' })),
           ME.service_account ? h('div', { class: 'muted' }, `Share the sheet (Editor) with ${ME.service_account}`) : null,
+          ME.sheets_account ? h('div', { class: 'muted' }, `Works with any sheet ${ME.sheets_account} can edit. No sharing needed.`) : null,
           h('div', { class: 'grid' },
             h('label', {}, 'Tab name', input('tab_name')),
             h('label', {}, 'Status column (letter or header)', input('status_col')),
@@ -466,12 +467,49 @@ async function viewPayers(practiceId) {
         h('td', {}, PLAN[p.plan_type]), h('td', {}, p.portal), h('td', {}, h('button', { type: 'button', class: 'small', onclick: () => editSlot.replaceChildren(form(p)) }, 'Edit')))) : h('tr', {}, h('td', { colspan: 7 }, 'No payers yet'))))));
 }
 
+function sheetsCard(gs, msg) {
+  const card = h('section', { class: `card ${gs.mode === 'local' ? 'focus' : ''}`, id: 'sheets' }, h('h2', {}, 'Google Sheets connection'));
+  if (gs.mode === 'google') { card.append(h('div', { class: 'success' }, 'Connected with a Google service account (set on the server).')); return card; }
+  if (gs.mode === 'appsscript') {
+    card.append(h('div', { class: 'success' }, `Connected as ${gs.account || 'your Google account'} since ${gs.connected_at.slice(0, 16).replace('T', ' ')} UTC. Paste any sheet link this account can edit into a Task Setup.`),
+      h('div', { class: 'row' }, h('button', { type: 'button', onclick: async () => {
+        if (!confirm('Disconnect Google Sheets? The app goes back to test mode until you connect again.')) return;
+        await api('DELETE', '/api/settings/sheets'); ME = await api('GET', '/api/me'); viewAdmin();
+      } }, 'Disconnect')));
+    return card;
+  }
+  const url = h('input', { placeholder: 'https://script.google.com/macros/s/…/exec', value: gs.url });
+  const scriptBox = gs.script ? h('textarea', { rows: 8, readonly: true, class: 'mono', 'aria-label': 'Script' }, gs.script) : null;
+  card.append(
+    h('div', { class: 'muted' }, 'One-time setup, about 5 minutes, in your normal Google account. No Google Cloud console.'),
+    h('ol', { class: 'steps' },
+      h('li', {}, h('strong', {}, 'Get the script: '), gs.script ? 'done. ' : '',
+        h('button', { type: 'button', class: gs.script ? 'small' : 'primary', onclick: async () => {
+          if (gs.script && !confirm('Make a new script? You will need to paste and deploy it again.')) return;
+          await api('POST', '/api/settings/sheets/new-script'); viewAdmin();
+        } }, gs.script ? 'Make a new one' : 'Get script'),
+        scriptBox ? h('div', {}, scriptBox, h('div', { class: 'row' }, copyBtn(gs.script), h('span', { class: 'muted' }, 'The script contains a secret key. Don\'t share it.'))) : null),
+      h('li', {}, 'Open ', h('a', { href: 'https://script.google.com/home/projects/create', target: '_blank', rel: 'noopener noreferrer' }, 'script.google.com (new project)'),
+        ', delete the sample code, paste the script, and click the Save icon.'),
+      h('li', {}, 'Click ', h('strong', {}, 'Deploy → New deployment'), '. Click the gear next to "Select type" → ', h('strong', {}, 'Web app'),
+        '. Set "Execute as" = ', h('strong', {}, 'Me'), ' and "Who has access" = ', h('strong', {}, 'Anyone'), '. Click ', h('strong', {}, 'Deploy'), '.'),
+      h('li', {}, 'Click ', h('strong', {}, 'Authorize access'), ', pick your account. On "Google hasn\'t verified this app" click ', h('strong', {}, 'Advanced → Go to … (unsafe)'),
+        ' → ', h('strong', {}, 'Allow'), '. (It is your own script, so this warning is expected.)'),
+      h('li', {}, 'Copy the ', h('strong', {}, 'Web app URL'), ' and paste it here:', h('div', { class: 'row' }, url,
+        h('button', { type: 'button', class: 'primary', disabled: !gs.script, onclick: async (ev) => {
+          ev.target.disabled = true; ev.target.textContent = 'Testing…';
+          try { await api('PUT', '/api/settings/sheets', { url: url.value }); ME = await api('GET', '/api/me'); viewAdmin(); }
+          catch (e) { msg.replaceChildren(errorBox(e)); ev.target.disabled = false; ev.target.textContent = 'Connect'; msg.scrollIntoView(); }
+        } }, 'Connect')))));
+  return card;
+}
+
 async function viewAdmin() {
-  const [users, tokens] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens')]);
+  const [users, tokens, gs] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets')]);
   const msg = h('div');
   const nu = { name: h('input'), email: h('input', { type: 'email' }), password: h('input', { type: 'password', autocomplete: 'new-password' }), role: h('select', {}, h('option', { value: 'staff' }, 'staff'), h('option', { value: 'admin' }, 'admin')) };
   const tokName = h('input', { placeholder: 'e.g. OFFICE-VM-01' });
-  shell('admin', h('h1', {}, 'Users & bot access'), msg,
+  shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, sheetsCard(gs, msg),
     h('section', { class: 'card' }, h('h2', {}, 'Bot tokens'),
       h('div', { class: 'muted' }, 'The bot PC uses a token instead of a password. It can only work confirmed tasks: it cannot change Task Setups, payer lists or users.'),
       h('div', { class: 'row' }, tokName, h('button', { type: 'button', class: 'primary', onclick: async () => {

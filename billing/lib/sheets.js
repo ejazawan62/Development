@@ -123,9 +123,76 @@ function localAdapter(file) {
   };
 }
 
-function createSheets(env = process.env, dataDir) {
-  if (env.GOOGLE_SERVICE_ACCOUNT_FILE) return googleAdapter(env.GOOGLE_SERVICE_ACCOUNT_FILE);
-  return localAdapter(env.LOCAL_SHEETS_FILE || `${dataDir}/local-sheets.json`);
+// ---------- Apps Script adapter (no Google Cloud console needed) ----------
+// The user deploys lib/apps-script.js's script as a web app under their own Google account.
+const APPS_SCRIPT_URL = /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]{20,}\/exec$/;
+
+function appsScriptAdapter(url, secret, { allowAnyUrl = false } = {}) {
+  if (!allowAnyUrl && !APPS_SCRIPT_URL.test(url)) throw new Error('Not a Google Apps Script web app URL (it should end in /exec)');
+  async function call(action, payload) {
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ secret, action, ...payload }),
+        redirect: 'follow',
+      });
+    } catch (e) {
+      throw Object.assign(new Error(`Can't reach the Google script: ${e.message}`), { status: 502 });
+    }
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch {
+      throw Object.assign(new Error('The Google script did not answer with data. Check it is deployed as a web app with access "Anyone", then redeploy.'), { status: 502 });
+    }
+    if (data.error) throw Object.assign(new Error(`Google Sheets: ${data.error}`), { status: data.error === 'unauthorized' ? 502 : 422 });
+    return data;
+  }
+  const rangeRows = (a1) => {
+    const m = String(a1).match(/^[A-Z]+(\d+):[A-Z]+(\d+)$/);
+    if (!m) throw new Error(`Unsupported range ${a1}`);
+    return { row: Number(m[1]), numRows: Number(m[2]) - Number(m[1]) + 1 };
+  };
+  return {
+    mode: 'appsscript',
+    ping: () => call('ping', {}),
+    async listTabs(spreadsheetId) { return (await call('listTabs', { spreadsheetId })).tabs; },
+    async readRange(spreadsheetId, tab, a1) {
+      const values = (await call('read', { spreadsheetId, tab, ...rangeRows(a1) })).values || [];
+      return values.map((r) => {
+        const row = r.map((v) => (v == null ? '' : String(v)));
+        while (row.length && row[row.length - 1] === '') row.pop();
+        return row;
+      });
+    },
+    async writeCells(spreadsheetId, tab, cells) {
+      await call('write', { spreadsheetId, tab, cells: cells.map((c) => ({ row: c.row, col: c.col, value: String(c.value) })) });
+    },
+  };
 }
 
-module.exports = { createSheets, localAdapter, colToLetter, letterToCol, spreadsheetIdFromLink };
+/**
+ * Picks the sheets connection on every call, so connecting Google in the app takes effect without a restart.
+ * Order: service account (env) → Apps Script (saved in settings) → local test sheets.
+ */
+function createSheets(env = process.env, dataDir, getSettings = () => ({}), adapterOptions = {}) {
+  if (env.GOOGLE_SERVICE_ACCOUNT_FILE) return googleAdapter(env.GOOGLE_SERVICE_ACCOUNT_FILE);
+  const local = localAdapter(env.LOCAL_SHEETS_FILE || `${dataDir}/local-sheets.json`);
+  let cached = { key: null, adapter: null };
+  const current = () => {
+    const s = getSettings();
+    if (!s.apps_script_url || !s.apps_script_secret) return local;
+    const key = `${s.apps_script_url}|${s.apps_script_secret}`;
+    if (cached.key !== key) cached = { key, adapter: appsScriptAdapter(s.apps_script_url, s.apps_script_secret, adapterOptions) };
+    return cached.adapter;
+  };
+  return {
+    get mode() { return current().mode; },
+    listTabs: (...a) => current().listTabs(...a),
+    readRange: (...a) => current().readRange(...a),
+    writeCells: (...a) => current().writeCells(...a),
+  };
+}
+
+module.exports = { createSheets, localAdapter, appsScriptAdapter, APPS_SCRIPT_URL, colToLetter, letterToCol, spreadsheetIdFromLink };

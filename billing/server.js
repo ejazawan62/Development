@@ -2,8 +2,9 @@
 const path = require('node:path');
 const crypto = require('node:crypto');
 const express = require('express');
-const { open, tx, hashPassword, verifyPassword, sha256 } = require('./lib/db');
-const { createSheets, colToLetter, letterToCol, spreadsheetIdFromLink } = require('./lib/sheets');
+const { open, tx, hashPassword, verifyPassword, sha256, readSettings, writeSetting } = require('./lib/db');
+const { createSheets, appsScriptAdapter, colToLetter, letterToCol, spreadsheetIdFromLink } = require('./lib/sheets');
+const { appsScriptSource } = require('./lib/apps-script');
 const { FIELDS, guessMapping, resolveColumn, missingRequired } = require('./lib/mapping');
 const checks = require('./lib/checks');
 const rules = require('./lib/rules');
@@ -18,7 +19,7 @@ const SHEET_FIELDS = new Set(['sheet_link', 'tab_name', 'status_col', 'insurance
 class HttpError extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; } }
 const bad = (msg, extra) => new HttpError(422, msg, extra);
 
-function createApp({ db, sheets, log = () => {} }) {
+function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
@@ -104,7 +105,10 @@ function createApp({ db, sheets, log = () => {} }) {
     res.json({ ok: true });
   });
   app.get('/api/me', (req, res) => {
-    if (req.user) return res.json({ id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, sheets_mode: sheets.mode, service_account: sheets.serviceAccountEmail || null });
+    if (req.user) {
+      return res.json({ id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, sheets_mode: sheets.mode,
+        service_account: sheets.serviceAccountEmail || null, sheets_account: readSettings(db).apps_script_account || null });
+    }
     if (req.token) return res.json({ bot: true, name: req.token.name, sheets_mode: sheets.mode });
     res.status(401).json({ error: 'Sign in required' });
   });
@@ -643,6 +647,51 @@ function createApp({ db, sheets, log = () => {} }) {
     res.json({ token: tok || null, working: working || null, today });
   });
 
+  // ---------- Google Sheets connection (Apps Script) ----------
+  function sheetsSettings() {
+    const s = readSettings(db);
+    return {
+      mode: sheets.mode,
+      service_account: !!sheets.serviceAccountEmail,
+      url: s.apps_script_url || '',
+      account: s.apps_script_account || '',
+      connected_at: s.apps_script_connected_at || '',
+      script: s.pending_secret || s.apps_script_secret ? appsScriptSource(s.pending_secret || s.apps_script_secret) : null,
+    };
+  }
+  app.get('/api/settings/sheets', requireAdmin, (req, res) => res.json(sheetsSettings()));
+  app.post('/api/settings/sheets/new-script', requireAdmin, (req, res) => {
+    writeSetting(db, 'pending_secret', crypto.randomBytes(32).toString('base64url'));
+    audit('settings', 0, 'sheets_new_secret', null, actorName(req));
+    res.json(sheetsSettings());
+  });
+  app.put('/api/settings/sheets', requireAdmin, wrap(async (req, res) => {
+    const s = readSettings(db);
+    const secret = s.pending_secret || s.apps_script_secret;
+    if (!secret) throw bad('Get the script first (step 1).');
+    const url = String(req.body.url || '').trim();
+    let adapter;
+    try { adapter = appsScriptAdapter(url, secret, appsScriptOptions); } catch (e) { throw bad(e.message); }
+    let ping;
+    try { ping = await adapter.ping(); } catch (e) {
+      throw bad(/unauthorized/.test(e.message)
+        ? 'The script answered, but its secret does not match. Copy the script from this page again, paste it over the old one, then Deploy → Manage deployments → Edit → New version.'
+        : e.message);
+    }
+    writeSetting(db, 'apps_script_url', url);
+    writeSetting(db, 'apps_script_secret', secret);
+    writeSetting(db, 'apps_script_account', ping.account || '');
+    writeSetting(db, 'apps_script_connected_at', new Date().toISOString());
+    writeSetting(db, 'pending_secret', null);
+    audit('settings', 0, 'sheets_connect', { account: ping.account }, actorName(req));
+    res.json(sheetsSettings());
+  }));
+  app.delete('/api/settings/sheets', requireAdmin, (req, res) => {
+    for (const k of ['apps_script_url', 'apps_script_secret', 'apps_script_account', 'apps_script_connected_at', 'pending_secret']) writeSetting(db, k, null);
+    audit('settings', 0, 'sheets_disconnect', null, actorName(req));
+    res.json(sheetsSettings());
+  });
+
   // ---------- static UI ----------
   app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html' }));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
@@ -667,7 +716,7 @@ function ensureAdmin(db) {
 if (require.main === module) {
   const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
   const db = open(path.join(dataDir, 'billing.db'));
-  const sheets = createSheets(process.env, dataDir);
+  const sheets = createSheets(process.env, dataDir, () => readSettings(db));
   const created = ensureAdmin(db);
   if (created) {
     console.log(`Created first admin: ${created.email}${created.generated ? ` / password: ${created.password} (change it after signing in)` : ''}`);
@@ -675,7 +724,8 @@ if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
   const host = process.env.HOST || '127.0.0.1';
   createApp({ db, sheets, log: (e) => console.error(e) }).listen(port, host, () => {
-    console.log(`Billing Control on http://${host}:${port} · sheets: ${sheets.mode}${sheets.mode === 'local' ? ' (local test sheets, fake data only)' : ` (${sheets.serviceAccountEmail})`}`);
+    const how = { local: 'local test sheets, fake data only (connect Google in Users & bot access)', appsscript: 'Google Sheets via your Apps Script', google: `Google Sheets via ${sheets.serviceAccountEmail}` };
+    console.log(`Billing Control on http://${host}:${port} · sheets: ${how[sheets.mode]}`);
   });
 }
 
