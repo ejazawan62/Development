@@ -34,11 +34,35 @@ async function loadBranding() {
 const logoSrc = (full) => (BRAND.has_logo ? `/branding/logo?v=${BRAND.logo_version}` : full ? 'brand/nova-rise-logo.png' : 'brand/nova-rise-mark.png');
 
 // ---------- helpers ----------
+// ---------- feedback: toasts and busy buttons ----------
+function toast(text, kind = 'info') {
+  let box = document.getElementById('toasts');
+  if (!box) { box = document.createElement('div'); box.id = 'toasts'; box.setAttribute('aria-live', 'polite'); document.body.append(box); }
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = text;
+  box.append(el);
+  setTimeout(() => el.classList.add('gone'), kind === 'error' ? 7000 : 3000);
+  setTimeout(() => el.remove(), kind === 'error' ? 7600 : 3600);
+}
+/** Shows a pressed/working state on the control while an async action runs, and reports failures. */
+function withBusy(control, result) {
+  if (!result || typeof result.then !== 'function' || !control) return result;
+  const wasDisabled = control.disabled;
+  control.classList.add('busy');
+  control.setAttribute('aria-busy', 'true');
+  control.disabled = true;
+  return result.catch((e) => { if (e && e.message !== 'Signed out') toast(e.message || 'Something went wrong', 'error'); })
+    .finally(() => { control.classList.remove('busy'); control.removeAttribute('aria-busy'); if (!wasDisabled) control.disabled = false; });
+}
+
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
     if (k === 'class') el.className = v;
+    else if (k === 'onclick' && tag === 'button') el.addEventListener('click', (ev) => withBusy(el, v(ev)));
+    else if (k === 'onsubmit' && tag === 'form') el.addEventListener('submit', (ev) => withBusy(el.querySelector('button[type=submit]'), v(ev)));
     else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
     else if (k === 'value') el.value = v;
     else if (k === 'checked' || k === 'disabled' || k === 'selected') el[k] = !!v;
@@ -790,6 +814,25 @@ function sheetsCard(gs, msg) {
   return card;
 }
 
+function updatesCard(up) {
+  const card = h('section', { class: 'card' }, h('h2', {}, 'Updates'));
+  if (!up.available) { card.append(h('div', { class: 'muted' }, 'Automatic updates aren\'t available on this server.')); return card; }
+  const toggle = h('input', { type: 'checkbox', checked: up.enabled, onchange: async () => {
+    try { await api('PUT', '/api/settings/updates', { enabled: toggle.checked }); toast(toggle.checked ? 'Automatic updates on' : 'Automatic updates off'); } catch (e) { toast(e.message, 'error'); }
+  } });
+  card.append(
+    h('label', { class: 'inline' }, toggle, 'Install updates automatically (checks every 5 minutes, restarts in a few seconds, then every open page reloads itself)'),
+    h('div', { class: 'muted' }, `Version ${up.current || '?'} on ${up.branch || '?'}${up.last_check ? ` · last check ${up.last_check.slice(0, 16).replace('T', ' ')} UTC: ${up.last_result || ''}` : ''}`),
+    up.last_error ? h('div', { class: 'error' }, up.last_error) : null,
+    !up.supervised ? h('div', { class: 'error' }, 'This Billing Control was started the old way, so it can download updates but not restart itself. Stop it (Ctrl+C) and start it again with npm.cmd start once; from then on it restarts itself.') : null,
+    h('div', { class: 'row' }, h('button', { type: 'button', onclick: async () => {
+      const s = await api('POST', '/api/settings/updates/check');
+      toast(s.last_error ? s.last_error : s.last_result || 'Checked', s.last_error ? 'error' : 'info');
+      if (!s.last_error && !/Updated/.test(s.last_result || '')) viewAdmin();
+    } }, 'Check for updates now')));
+  return card;
+}
+
 function brandingCard(msg) {
   const company = h('input', { value: BRAND.company, 'aria-label': 'Company name' });
   const colour = h('input', { type: 'color', value: BRAND.accent || '#1F2C6E', 'aria-label': 'Brand colour' });
@@ -843,7 +886,7 @@ function portalsCard(portals, practices, msg) {
 }
 
 async function viewAdmin(flash, newToken) {
-  const [users, tokens, gs, portals, practices, botSet] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets'), api('GET', '/api/portals'), api('GET', '/api/practices'), api('GET', '/api/settings/bots')]);
+  const [users, tokens, gs, portals, practices, botSet, up] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets'), api('GET', '/api/portals'), api('GET', '/api/practices'), api('GET', '/api/settings/bots'), api('GET', '/api/settings/updates')]);
   const modelSel = h('select', { 'aria-label': 'Bot model', onchange: async () => {
     try { await api('PUT', '/api/settings/bots', { model: modelSel.value }); tokenMsg.replaceChildren(h('div', { class: 'success' }, 'Saved. Bots started from now on use this model.')); } catch (e) { tokenMsg.replaceChildren(errorBox(e)); }
   } }, Object.entries(botSet.models).map(([k, v]) => h('option', { value: k, selected: k === botSet.model }, v)));
@@ -859,7 +902,7 @@ async function viewAdmin(flash, newToken) {
     userMsg.scrollIntoView({ block: 'center' });
   };
   const tokName = h('input', { placeholder: 'e.g. OFFICE-VM-01' });
-  shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, sheetsCard(gs, msg), brandingCard(msg), portalsCard(portals, practices, msg),
+  shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, updatesCard(up), sheetsCard(gs, msg), brandingCard(msg), portalsCard(portals, practices, msg),
     h('section', { class: 'card' }, h('h2', {}, 'Bot tokens'),
       h('div', { class: 'muted' }, 'The bot PC uses a token instead of a password. It can only work confirmed tasks: it cannot change Task Setups, payer lists or users.'),
       tokenMsg,
@@ -908,6 +951,26 @@ async function viewAdmin(flash, newToken) {
 }
 
 // ---------- router ----------
+// ---------- automatic reload when Billing Control is updated ----------
+let APP_VERSION = null;
+async function watchVersion() {
+  try {
+    const { version } = await (await fetch('/api/version', { cache: 'no-store' })).json();
+    if (!APP_VERSION) APP_VERSION = version;
+    else if (version !== APP_VERSION) {
+      const a = document.activeElement;
+      const typing = a && ['INPUT', 'TEXTAREA'].includes(a.tagName) && a.value && !(a.closest && a.closest('.split'));
+      if (typing || document.querySelector('dialog[open]')) return; // try again on the next check
+      if (PENDING_SAVE) { PENDING_SAVE(); PENDING_SAVE = null; }
+      toast('Billing Control was updated. Reloading…');
+      setTimeout(() => location.reload(), 1200);
+      return;
+    }
+  } catch { /* server restarting: try again */ }
+}
+setInterval(watchVersion, 15000);
+watchVersion();
+
 let brandingLoaded = false;
 async function render() {
   unmountChat();

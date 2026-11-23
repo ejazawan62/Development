@@ -7,6 +7,8 @@ const { open, tx, hashPassword, verifyPassword, sha256, readSettings, writeSetti
 const { createSheets, appsScriptAdapter, colToLetter, letterToCol, spreadsheetIdFromLink } = require('./lib/sheets');
 const { appsScriptSource, SCRIPT_VERSION } = require('./lib/apps-script');
 const { windowsLauncher } = require('./lib/launcher');
+const { createUpdater } = require('./lib/updater');
+const fs = require('node:fs');
 const { FIELDS, guessMapping, resolveColumn, detectColumn, missingRequired } = require('./lib/mapping');
 const checks = require('./lib/checks');
 const rules = require('./lib/rules');
@@ -24,8 +26,21 @@ const SHEET_FIELDS = new Set(['sheet_link', 'tab_name', 'status_col', 'insurance
 class HttpError extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; } }
 const bad = (msg, extra) => new HttpError(422, msg, extra);
 
-function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launcher = windowsLauncher, publicPort = Number(process.env.PORT || 3000) }) {
+// What the browser compares to know it should reload: a fingerprint of the app files this server is serving.
+function appVersion() {
+  const h = crypto.createHash('sha256');
+  for (const f of ['public/app.js', 'public/app.css', 'public/index.html', 'server.js']) {
+    try { h.update(fs.readFileSync(path.join(__dirname, f))); } catch { /* ignore */ }
+  }
+  return h.digest('hex').slice(0, 12);
+}
+
+function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launcher = windowsLauncher, publicPort = Number(process.env.PORT || 3000), updater = null }) {
   const app = express();
+  const VERSION = appVersion();
+  let inFlight = 0;
+  app.locals.isBusy = () => inFlight > 1;
+  app.use((req, res, next) => { inFlight += 1; res.on('close', () => { inFlight -= 1; }); next(); });
   app.disable('x-powered-by');
   app.use(express.json({ limit: '3mb' }));
   app.use((req, res, next) => {
@@ -109,6 +124,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     res.set('Set-Cookie', 'sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
     res.json({ ok: true });
   });
+  app.get('/api/version', (req, res) => res.json({ version: VERSION }));
   app.get('/api/me', (req, res) => {
     if (req.user) {
       return res.json({ id: req.user.id, name: req.user.name, email: req.user.email, username: req.user.email, role: req.user.role, sheets_mode: sheets.mode,
@@ -1084,6 +1100,22 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     res.json(sheetsSettings());
   });
 
+  // ---------- automatic updates ----------
+  app.get('/api/settings/updates', requireAdmin, (req, res) => {
+    res.json({ enabled: readSettings(db).auto_update !== '0', available: !!updater, ...(updater ? updater.state : {}) });
+  });
+  app.put('/api/settings/updates', requireAdmin, (req, res) => {
+    writeSetting(db, 'auto_update', req.body && req.body.enabled ? '1' : '0');
+    audit('settings', 0, 'auto_update', { enabled: !!(req.body && req.body.enabled) }, actorName(req));
+    res.json({ enabled: readSettings(db).auto_update !== '0', available: !!updater, ...(updater ? updater.state : {}) });
+  });
+  app.post('/api/settings/updates/check', requireAdmin, wrap(async (req, res) => {
+    if (!updater) throw bad('Automatic updates are not available here');
+    audit('settings', 0, 'update_check', null, actorName(req));
+    const s = await updater.check({ install: true });
+    res.json({ enabled: readSettings(db).auto_update !== '0', available: true, ...s });
+  }));
+
   // ---------- branding (company name, colour, logo) ----------
   const LOGO_TYPES = { 'image/png': 1, 'image/jpeg': 1, 'image/webp': 1, 'image/svg+xml': 1 };
   function branding() {
@@ -1156,7 +1188,15 @@ if (require.main === module) {
   }
   const port = Number(process.env.PORT || 3000);
   const host = process.env.HOST || '127.0.0.1';
-  createApp({ db, sheets, log: (e) => console.error(e), publicPort: port }).listen(port, host, () => {
+  let app;
+  const updater = createUpdater({
+    getEnabled: () => readSettings(db).auto_update !== '0',
+    isBusy: () => (app ? app.locals.isBusy() : false),
+    log: (m) => console.log(m),
+  });
+  updater.start(5);
+  app = createApp({ db, sheets, log: (e) => console.error(e), publicPort: port, updater });
+  app.listen(port, host, () => {
     const how = { local: 'local test sheets, fake data only (connect Google in Users & bot access)', appsscript: 'Google Sheets via your Apps Script', google: `Google Sheets via ${sheets.serviceAccountEmail}` };
     console.log(`Billing Control on http://${host}:${port} · sheets: ${how[sheets.mode]}`);
   });

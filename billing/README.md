@@ -100,6 +100,13 @@ It asks you in chat for one-time codes, and stops when a login fails twice or th
 
 The bot token can only work confirmed tasks. It cannot edit Task Setups, payer lists or users.
 
+## Updates
+
+`npm start` runs `start.js`, which runs the server and restarts it after an update. Every 5 minutes Billing Control
+checks its Git branch; if there is a new version it fast-forwards (never overwriting local edits), runs
+`npm install` when dependencies changed, and restarts within seconds. Open pages notice the new version and reload
+themselves (after saving what is being typed). Turn this off, or check now, in **Settings → Updates**.
+
 ## Start bot button
 
 On a confirmed task's worklist, **Start bot** opens a PowerShell window on the PC running Billing Control and

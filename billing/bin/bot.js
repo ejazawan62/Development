@@ -49,11 +49,22 @@ function parseArgs(argv) {
 
 async function call(method, path, body) {
   if (!TOKEN) throw new Error('BILLING_TOKEN is not set. Create a bot token in Billing Control → Bot access.');
-  const res = await fetch(BASE + path, {
-    method,
-    headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json', 'x-bot-name': BOT },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Billing Control restarts for a few seconds when it installs an update: wait for it instead of failing.
+  let res;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(BASE + path, {
+        method,
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json', 'x-bot-name': BOT },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      break;
+    } catch (e) {
+      if (attempt >= 30) throw new Error(`Billing Control is not answering at ${BASE}. Is it running?`);
+      if (attempt === 0) process.stderr.write('Billing Control is restarting, waiting…\n');
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || `HTTP ${res.status}`);
