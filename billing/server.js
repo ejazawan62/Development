@@ -23,7 +23,7 @@ const bad = (msg, extra) => new HttpError(422, msg, extra);
 function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '3mb' }));
   app.use((req, res, next) => {
     res.set({
       'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
@@ -768,6 +768,47 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     for (const k of ['apps_script_url', 'apps_script_secret', 'apps_script_account', 'apps_script_connected_at', 'pending_secret']) writeSetting(db, k, null);
     audit('settings', 0, 'sheets_disconnect', null, actorName(req));
     res.json(sheetsSettings());
+  });
+
+  // ---------- branding (company name, colour, logo) ----------
+  const LOGO_TYPES = { 'image/png': 1, 'image/jpeg': 1, 'image/webp': 1, 'image/svg+xml': 1 };
+  function branding() {
+    const s = readSettings(db);
+    return { company: s.brand_company || 'Nova Rise Global Solutions', accent: s.brand_accent || '', has_logo: !!s.brand_logo, logo_version: s.brand_logo_version || '' };
+  }
+  app.get('/api/branding', (req, res) => res.json(branding()));
+  app.get('/branding/logo', (req, res) => {
+    const s = readSettings(db);
+    if (!s.brand_logo) return res.status(404).end();
+    const [, mime, b64] = s.brand_logo.match(/^data:([^;]+);base64,(.+)$/) || [];
+    if (!mime) return res.status(404).end();
+    // An SVG opened directly must not run scripts in this site.
+    res.set({ 'Content-Type': mime, 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox", 'Cache-Control': 'private, max-age=86400' });
+    res.send(Buffer.from(b64, 'base64'));
+  });
+  app.put('/api/branding', requireAdmin, (req, res) => {
+    const b = req.body || {};
+    if (b.company != null) {
+      const c = String(b.company).trim().slice(0, 60);
+      if (!c) throw bad('Company name can\'t be empty');
+      writeSetting(db, 'brand_company', c);
+    }
+    if (b.accent != null) {
+      if (b.accent && !/^#[0-9a-fA-F]{6}$/.test(b.accent)) throw bad('Colour must look like #1F4FD1');
+      writeSetting(db, 'brand_accent', b.accent || null);
+    }
+    if (b.logo !== undefined) {
+      if (b.logo === null) writeSetting(db, 'brand_logo', null);
+      else {
+        const m = String(b.logo).match(/^data:([a-z+/]+);base64,([A-Za-z0-9+/=]+)$/);
+        if (!m || !LOGO_TYPES[m[1]]) throw bad('Logo must be a PNG, JPG, WebP or SVG image');
+        if (Buffer.from(m[2], 'base64').length > 1024 * 1024) throw bad('Logo must be 1 MB or smaller');
+        writeSetting(db, 'brand_logo', b.logo);
+      }
+      writeSetting(db, 'brand_logo_version', String(Date.now()));
+    }
+    audit('settings', 0, 'branding', { company: b.company, accent: b.accent, logo: b.logo === undefined ? 'unchanged' : b.logo ? 'set' : 'removed' }, actorName(req));
+    res.json(branding());
   });
 
   // ---------- static UI ----------

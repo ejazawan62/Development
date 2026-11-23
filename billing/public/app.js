@@ -3,6 +3,35 @@
 
 const $app = document.getElementById('app');
 let ME = null;
+let BRAND = { company: 'Nova Rise Global Solutions', accent: '', has_logo: false, logo_version: '' };
+
+// ---------- branding ----------
+const SVGNS = 'http://www.w3.org/2000/svg';
+const ICONS = {
+  tasks: 'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
+  payers: 'M3 7h18v10H3zM3 10h18M7 15h3',
+  settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
+  portal: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  logout: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3',
+};
+function icon(name) {
+  const s = document.createElementNS(SVGNS, 'svg');
+  s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'icon'); s.setAttribute('aria-hidden', 'true');
+  const p = document.createElementNS(SVGNS, 'path'); p.setAttribute('d', ICONS[name]); s.append(p);
+  return s;
+}
+function inkFor(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4 ? '#0F1B2D' : '#FFFFFF';
+}
+async function loadBranding() {
+  try { BRAND = await (await fetch('/api/branding')).json(); } catch { /* keep defaults */ }
+  const root = document.documentElement.style;
+  if (BRAND.accent) { root.setProperty('--brand', BRAND.accent); root.setProperty('--brand-ink', inkFor(BRAND.accent)); }
+  else { root.removeProperty('--brand'); root.removeProperty('--brand-ink'); }
+  document.title = `${BRAND.company} · Billing Control`;
+}
+const logoSrc = (full) => (BRAND.has_logo ? `/branding/logo?v=${BRAND.logo_version}` : full ? 'brand/nova-rise-logo.png' : 'brand/nova-rise-mark.png');
 
 // ---------- helpers ----------
 function h(tag, attrs, ...kids) {
@@ -87,21 +116,25 @@ function openPortal(url) {
 function portalBar(links) {
   if (!links || !links.length) return null;
   return h('div', { class: 'portalbar', role: 'group', 'aria-label': 'Portals' },
-    h('span', { class: 'muted' }, 'Portals:'),
+    h('span', { class: 'muted' }, icon('portal'), 'Portals'),
     links.map((p) => h('button', { type: 'button', class: 'small', title: p.url, onclick: () => openPortal(p.url) }, `${p.name} ↗`)),
     h('span', { class: 'muted tip' }, 'Tip: press Windows + ← to keep this app on the left half.'));
 }
 
 // ---------- layout ----------
 function shell(active, ...content) {
-  const link = (href, text, key) => h('a', { href, class: active === key ? 'on' : '' }, text);
-  const nav = [link('#/', 'Tasks', 'tasks'), link('#/payers', 'Payer lists', 'payers')];
-  if (ME.role === 'admin') nav.push(link('#/admin', 'Settings', 'admin'));
+  const link = (href, text, key, ic) => h('a', { href, class: active === key ? 'on' : '', 'aria-current': active === key ? 'page' : null }, icon(ic), text);
+  const nav = [link('#/', 'Tasks', 'tasks', 'tasks'), link('#/payers', 'Payer lists', 'payers', 'payers')];
+  if (ME.role === 'admin') nav.push(link('#/admin', 'Settings', 'admin', 'settings'));
+  const initials = ME.name.split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase();
   const page = h('div', {},
     h('header', { class: 'top' },
-      h('div', { class: 'brand' }, 'Billing Control'),
+      h('a', { class: 'brand', href: '#/' }, h('img', { src: logoSrc(false), alt: `${BRAND.company} logo` }),
+        h('span', { class: 'divider', 'aria-hidden': 'true' }),
+        h('span', { class: 'names' }, h('span', { class: 'company' }, BRAND.company.toUpperCase()), h('span', { class: 'product' }, 'Billing Control'))),
       h('nav', { 'aria-label': 'Main' }, nav),
-      h('div', { class: 'who' }, `${ME.name} · ${ME.role}`, h('button', { type: 'button', class: 'small', onclick: async () => { await api('POST', '/api/logout'); ME = null; render(); } }, 'Sign out'))),
+      h('div', { class: 'who' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, initials), h('span', { class: 'name' }, `${ME.name} · ${ME.role}`),
+        h('button', { type: 'button', class: 'small', onclick: async () => { await api('POST', '/api/logout'); ME = null; render(); } }, icon('logout'), 'Sign out'))),
     ME.sheets_mode === 'local' ? h('div', { class: 'banner-demo' }, 'Test mode: using local test sheets with fake data. ', ME.role === 'admin' ? h('a', { href: '#/admin' }, 'Connect Google Sheets') : 'An admin can connect Google Sheets', ' before real work.') : null,
     h('main', {}, content));
   $app.replaceChildren(page);
@@ -115,9 +148,12 @@ function viewLogin(err) {
   const form = h('form', { class: 'card login', onsubmit: async (ev) => {
     ev.preventDefault();
     try { await api('POST', '/api/login', { email: email.value, password: pass.value }); ME = await api('GET', '/api/me'); render(); } catch (e) { msg.replaceChildren(errorBox(e)); }
-  } }, h('h1', {}, 'Billing Control'), h('label', {}, 'Email', email), h('label', {}, 'Password', pass), msg, h('button', { class: 'primary', type: 'submit' }, 'Sign in'));
+  } },
+  h('div', { class: 'logo' }, h('img', { src: logoSrc(true), alt: `${BRAND.company} logo` })),
+  h('h1', {}, 'Billing Control'), h('div', { class: 'sub' }, 'Demos, claims and submissions'),
+  h('label', {}, 'Email', email), h('label', {}, 'Password', pass), msg, h('button', { class: 'primary', type: 'submit' }, 'Sign in'));
   if (err) msg.append(errorBox(err));
-  $app.replaceChildren(h('main', {}, form));
+  $app.replaceChildren(h('div', { class: 'login-page' }, form));
 }
 
 async function viewHome() {
@@ -540,6 +576,33 @@ function sheetsCard(gs, msg) {
   return card;
 }
 
+function brandingCard(msg) {
+  const company = h('input', { value: BRAND.company, 'aria-label': 'Company name' });
+  const colour = h('input', { type: 'color', value: BRAND.accent || '#1F2C6E', 'aria-label': 'Brand colour' });
+  const preview = h('div', { class: 'logo-preview' }, h('img', { src: logoSrc(true), alt: 'Current logo' }));
+  const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', 'aria-label': 'Upload logo' });
+  const save = async (body, note) => {
+    try { await api('PUT', '/api/branding', body); await loadBranding(); viewAdmin(); }
+    catch (e) { msg.replaceChildren(errorBox(e)); msg.scrollIntoView(); }
+  };
+  file.addEventListener('change', () => {
+    const f = file.files[0];
+    if (!f) return;
+    if (f.size > 1024 * 1024) { msg.replaceChildren(errorBox(new Error('Logo must be 1 MB or smaller'))); return; }
+    const r = new FileReader();
+    r.onload = () => save({ logo: r.result });
+    r.readAsDataURL(f);
+  });
+  return h('section', { class: 'card' }, h('h2', {}, 'Branding'),
+    h('div', { class: 'muted' }, 'Shown in the top bar and on the sign-in page. The Nova Rise logo is built in; upload a file only to replace it.'),
+    h('div', { class: 'row' }, preview, h('div', { class: 'row' },
+      h('label', {}, 'Replace logo (PNG, JPG, WebP or SVG, up to 1 MB)', file),
+      BRAND.has_logo ? h('button', { type: 'button', class: 'small', onclick: () => save({ logo: null }) }, 'Use built-in Nova Rise logo') : null)),
+    h('div', { class: 'row' }, h('label', {}, 'Company name', company), h('label', {}, 'Main colour', colour),
+      h('button', { type: 'button', class: 'primary', onclick: () => save({ company: company.value, accent: colour.value.toLowerCase() === '#1f2c6e' ? '' : colour.value }) }, 'Save branding'),
+      BRAND.accent ? h('button', { type: 'button', class: 'link', onclick: () => save({ accent: '' }) }, 'Reset colour') : null));
+}
+
 function portalsCard(portals, practices, msg) {
   const practiceSel = (val) => h('select', { 'aria-label': 'Practice' }, h('option', { value: '' }, 'All practices'), practices.map((p) => h('option', { value: p.id, selected: p.id === val }, p.name)));
   const rowFor = (p) => {
@@ -570,7 +633,7 @@ async function viewAdmin() {
   const msg = h('div');
   const nu = { name: h('input'), email: h('input', { type: 'email' }), password: h('input', { type: 'password', autocomplete: 'new-password' }), role: h('select', {}, h('option', { value: 'staff' }, 'staff'), h('option', { value: 'admin' }, 'admin')) };
   const tokName = h('input', { placeholder: 'e.g. OFFICE-VM-01' });
-  shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, sheetsCard(gs, msg), portalsCard(portals, practices, msg),
+  shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, sheetsCard(gs, msg), brandingCard(msg), portalsCard(portals, practices, msg),
     h('section', { class: 'card' }, h('h2', {}, 'Bot tokens'),
       h('div', { class: 'muted' }, 'The bot PC uses a token instead of a password. It can only work confirmed tasks: it cannot change Task Setups, payer lists or users.'),
       h('div', { class: 'row' }, tokName, h('button', { type: 'button', class: 'primary', onclick: async () => {
@@ -592,8 +655,10 @@ async function viewAdmin() {
 }
 
 // ---------- router ----------
+let brandingLoaded = false;
 async function render() {
   try {
+    if (!brandingLoaded) { await loadBranding(); brandingLoaded = true; }
     if (!ME) {
       try { ME = await api('GET', '/api/me'); } catch { ME = null; }
       if (!ME || ME.bot) { ME = null; viewLogin(); return; }
