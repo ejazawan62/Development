@@ -367,6 +367,23 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     res.json(publicTask(getTask(t.id)));
   });
 
+  // Removes the task from Billing Control. The Google Sheet is never changed.
+  app.delete('/api/tasks/:id', requireUser, (req, res) => {
+    const t = getTask(req.params.id);
+    const recorded = q.get('SELECT COUNT(*) AS n FROM records WHERE task_id = ?', t.id).n;
+    if (recorded && req.user.role !== 'admin') throw new HttpError(403, `This task has ${recorded} recorded outcome(s). Only an admin can delete it.`);
+    if (t.state === 'confirmed' && t.current_row && t.bot_last_seen && !req.body.force) {
+      throw bad(`The bot is working row ${t.current_row} of this task. Stop the bot first, or confirm again to delete anyway.`, { bot_working: true });
+    }
+    tx(db, () => {
+      for (const table of ['records', 'alerts', 'task_rows']) q.run(`DELETE FROM ${table} WHERE task_id = ?`, t.id);
+      q.run('UPDATE tasks SET copied_from = NULL WHERE copied_from = ?', t.id);
+      q.run('DELETE FROM tasks WHERE id = ?', t.id);
+      audit('task', t.id, 'delete', { type: t.task_type, practice: t.practice_name, tab: t.tab_name, recorded }, actorName(req));
+    });
+    res.json({ ok: true });
+  });
+
   app.post('/api/tasks/:id/close', requireUser, (req, res) => {
     const t = getTask(req.params.id);
     q.run("UPDATE tasks SET state = 'closed', current_row = NULL, closed_at = datetime('now') WHERE id = ?", t.id);

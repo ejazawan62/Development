@@ -92,3 +92,15 @@ test('portal links: starter list, practice-specific links, https only', async ()
   all = (await call('GET', '/api/portals?practice_id=999')).data;
   assert.ok(!all.some((p) => p.name === 'Fidelis'), 'other practices do not see it');
 });
+
+test('delete a task: removes it and its records, sheet untouched', async () => {
+  const before = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const t = await call('POST', '/api/tasks', { task_type: 'claim' });
+  const d = await call('DELETE', `/api/tasks/${t.data.id}`);
+  assert.equal(d.status, 200);
+  assert.equal((await call('GET', `/api/tasks/${t.data.id}`)).status, 404);
+  // Task 1 has a recorded row; admin can still delete it.
+  const d1 = await call('DELETE', '/api/tasks/1');
+  assert.equal(d1.status, 200, JSON.stringify(d1.data));
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), before);
+});

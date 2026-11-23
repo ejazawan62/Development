@@ -63,6 +63,20 @@ function progressBar(t) {
   return h('div', {}, bar, h('div', { class: 'muted' }, `${parts.join(' · ') || 'Not started'}${total ? ` · ${total - t.worked} left` : ''}`));
 }
 
+// ---------- task delete ----------
+async function deleteTask(t, after) {
+  const recorded = t.worked || 0;
+  const label = `#${t.id} · ${TYPE[t.task_type]}${t.practice_name ? ` · ${t.practice_name}` : ''}`;
+  const warn = recorded ? `\n\nIt has ${recorded} recorded outcome(s). They disappear from the app and its reports; the Google Sheet keeps everything already written.` : '';
+  if (!confirm(`Delete task ${label}?${warn}\n\nThis can't be undone.`)) return;
+  try { await api('DELETE', `/api/tasks/${t.id}`); }
+  catch (e) {
+    if (e.data && e.data.bot_working && confirm(`${e.message}\n\nDelete anyway?`)) await api('DELETE', `/api/tasks/${t.id}`, { force: true });
+    else { alert(e.message); return; }
+  }
+  after();
+}
+
 // ---------- portals ----------
 function openPortal(url) {
   // Opens the portal in its own window on the right half of the screen, so the app stays visible on the left.
@@ -131,7 +145,7 @@ async function viewHome() {
       h('section', { class: 'card' }, h('div', { class: 'muted' }, 'TODAY'),
         h('div', { class: 'row' }, ...['demo_done', 'already_added', 'claim_created', 'submitted', 'held'].filter((k) => today[k]).map((k) => h('div', {}, h('b', {}, today[k]), ` ${OUTCOME_LABEL[k]}`)), Object.keys(today).length ? null : 'No rows recorded yet'))),
     h('div', { class: 'table-wrap' }, h('table', {},
-      h('thead', {}, h('tr', {}, ['#', 'Task type', 'Practice · Provider', 'Sheet · Tab', 'Progress', 'State'].map((x) => h('th', {}, x)))),
+      h('thead', {}, h('tr', {}, ['#', 'Task type', 'Practice · Provider', 'Sheet · Tab', 'Progress', 'State', ''].map((x) => h('th', {}, x)))),
       h('tbody', {}, tasks.length ? tasks.map((t) => h('tr', {},
         h('td', { class: 'mono' }, t.id),
         h('td', {}, h('a', { href: t.state === 'setup' ? `#/tasks/${t.id}/setup` : `#/tasks/${t.id}` }, TYPE[t.task_type])),
@@ -140,7 +154,8 @@ async function viewHome() {
         h('td', {}, progressBar(t)),
         h('td', {}, t.state === 'setup' ? pill(`Setup incomplete${t.problems.length ? ` · ${t.problems.length}` : ''}`, 'warn')
           : t.state === 'closed' ? pill('Closed') : t.bot_paused ? pill('Paused · waiting on you', 'warn') : pill('Ready for bot', 'blue'),
-        t.open_alerts ? h('div', { class: 'muted' }, `${t.open_alerts} open alert(s)`) : null))) : h('tr', {}, h('td', { colspan: 6 }, 'No tasks yet.'))))));
+        t.open_alerts ? h('div', { class: 'muted' }, `${t.open_alerts} open alert(s)`) : null),
+        h('td', {}, (!t.worked || ME.role === 'admin') ? h('button', { type: 'button', class: 'small', 'aria-label': `Delete task ${t.id}`, onclick: () => deleteTask(t, viewHome) }, 'Delete') : null))) : h('tr', {}, h('td', { colspan: 7 }, 'No tasks yet.'))))));
 }
 
 async function viewSetup(id) {
@@ -231,7 +246,8 @@ async function viewSetup(id) {
 
   shell('tasks',
     h('div', { class: 'row' }, h('h1', {}, `Task #${id} · Task Setup`), h('span', { class: 'muted' }, t.copied_from ? `Copied from task #${t.copied_from}: check every field` : 'Starts empty. Nothing is reused unless you choose it.'),
-      h('button', { type: 'button', class: 'end', onclick: async () => { try { await save(); msg.replaceChildren(h('div', { class: 'success' }, 'Saved.')); refreshProblems(); } catch (e) { msg.replaceChildren(errorBox(e)); } } }, 'Save')),
+      h('button', { type: 'button', class: 'end', onclick: () => deleteTask(t, () => { location.hash = '#/'; }) }, 'Delete task'),
+      h('button', { type: 'button', onclick: async () => { try { await save(); msg.replaceChildren(h('div', { class: 'success' }, 'Saved.')); refreshProblems(); } catch (e) { msg.replaceChildren(errorBox(e)); } } }, 'Save')),
     msg,
     h('div', { class: 'split' },
       h('div', { class: 'main' },
@@ -309,7 +325,8 @@ async function viewWorklist(id, filter = 'all') {
     h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Show:'), chip('all', 'All'), chip('failed', 'Pre-check failed'), chip('held', 'Held'), chip('todo', 'Not started'),
       h('div', { class: 'row end' },
         t.state === 'confirmed' ? h('button', { type: 'button', onclick: async () => { try { await api('POST', `/api/tasks/${id}/reload`); viewWorklist(id, filter); } catch (e) { msg.replaceChildren(errorBox(e)); } } }, '↻ Re-read sheet') : null,
-        t.state === 'confirmed' ? h('button', { type: 'button', onclick: async () => { if (confirm('Move this task back to setup? The bot will stop.')) { await api('POST', `/api/tasks/${id}/edit-setup`); location.hash = `#/tasks/${id}/setup`; } } }, 'Edit setup') : null)),
+        t.state === 'confirmed' ? h('button', { type: 'button', onclick: async () => { if (confirm('Move this task back to setup? The bot will stop.')) { await api('POST', `/api/tasks/${id}/edit-setup`); location.hash = `#/tasks/${id}/setup`; } } }, 'Edit setup') : null,
+        (!t.worked || ME.role === 'admin') ? h('button', { type: 'button', onclick: () => deleteTask(t, () => { location.hash = '#/'; }) }, 'Delete task') : null)),
     h('div', { class: 'table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, ['Row', 'Patient', 'DOB', 'DOS', ...(isClaim ? ['Provider', 'Facility', 'NDC'] : ['Lookups']), 'Pre-check', 'Outcome', 'Notes'].map((x) => h('th', {}, x)))),
       h('tbody', {}, shown.map((r) => h('tr', { class: r.current ? 'cur' : !r.in_scope ? 'dim' : r.blockers && r.blockers.length && !r.record ? 'hl' : '' },
