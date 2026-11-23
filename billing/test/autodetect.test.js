@@ -184,3 +184,18 @@ test('Task Setup suggestions come from earlier tasks', async () => {
   assert.equal(s.npi_for_provider['Dr. Haddad'], '1234567893');
   assert.ok(s.sheet_link.some((l) => l.includes(ID)));
 });
+
+test('"Also work rows that already have a status" brings finished rows back', async () => {
+  const t = await call('POST', '/api/tasks', { task_type: 'demo' });
+  await call('PUT', `/api/tasks/${t.data.id}`, { practice_name: 'P2', oa_account: 'OA2', sheet_link: `https://docs.google.com/spreadsheets/d/${ID}/edit`, tab_name: 'Sheet1', portals: ['Office Ally'] });
+  await call('POST', `/api/tasks/${t.data.id}/check-sheet`);
+  await call('POST', `/api/tasks/${t.data.id}/confirm`);
+  let rows = (await call('GET', `/api/tasks/${t.data.id}/rows`)).data;
+  assert.equal(rows.find((r) => r.row_no === 2).in_scope, false);
+  await call('POST', `/api/tasks/${t.data.id}/edit-setup`);
+  await call('PUT', `/api/tasks/${t.data.id}`, { rework_done: true });
+  await call('POST', `/api/tasks/${t.data.id}/check-sheet`);
+  assert.equal((await call('POST', `/api/tasks/${t.data.id}/confirm`)).status, 200);
+  rows = (await call('GET', `/api/tasks/${t.data.id}/rows`)).data;
+  assert.equal(rows.find((r) => r.row_no === 2).in_scope, true);
+});

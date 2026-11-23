@@ -20,7 +20,7 @@ const BOT_STALE_MINUTES = 20;
 const LAUNCH_LOCK_MINUTES = 5;
 const SETUP_FIELDS = ['task_type', 'practice_name', 'provider_name', 'provider_npi', 'billing_npi', 'billing_tax_id', 'facilities',
   'oa_account', 'sheet_link', 'tab_name', 'status_col', 'insurance_col', 'notes_col', 'row_from', 'row_to', 'dos_from', 'dos_to',
-  'portals', 'special_instructions', 'extra_drug_codes'];
+  'portals', 'special_instructions', 'extra_drug_codes', 'rework_done'];
 const SHEET_FIELDS = new Set(['sheet_link', 'tab_name', 'status_col', 'insurance_col', 'notes_col', 'task_type']);
 
 class HttpError extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; } }
@@ -196,7 +196,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     const ident = checks.rowIdentity(cells, task.mapping);
     if (!ident.replace(/\|/g, '').trim()) return { in_scope: false, reason: 'Blank row' };
     const status = task.status_idx != null ? String(cells[task.status_idx] || '').trim() : '';
-    if (status && !hasRecord) return { in_scope: false, reason: `Already has status "${status}" (clear it to work the row again)` };
+    if (status && !hasRecord && !task.rework_done) return { in_scope: false, reason: `Already has status "${status}" (clear it, or tick "Also work rows that already have a status" in the Task Setup)` };
     const dos = checks.parseDate(checks.cell(cells, task.mapping, 'dos'));
     if (dos && !checks.inDosRange(dos, task)) return { in_scope: false, reason: 'DOS outside the task date range' };
     return { in_scope: true };
@@ -293,6 +293,8 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
         v = v === '' || v == null ? null : Number(v);
       } else if (f === 'dos_from' || f === 'dos_to') {
         v = v ? (checks.parseDate(v) || String(v)) : '';
+      } else if (f === 'rework_done') {
+        v = v === true || v === 1 || v === '1' || v === 'true' ? 1 : 0;
       } else if (f === 'task_type') {
         if (!['demo', 'claim', 'submission'].includes(v)) throw bad('Task type must be demo, claim or submission');
       } else v = String(v == null ? '' : v).trim();

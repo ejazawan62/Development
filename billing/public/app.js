@@ -375,6 +375,7 @@ async function viewSetup(id) {
   const PORTALS = ['Office Ally', 'Medicare (NGS)', 'UHC', 'ePACES (NY Medicaid)', 'Availity', 'Other payer portal'];
   const portalBoxes = PORTALS.map((p) => h('label', { class: 'inline' }, h('input', { type: 'checkbox', value: p, checked: t.portals.includes(p) }), p));
   const special = h('textarea', { rows: 3 }, t.special_instructions);
+  const rework = h('input', { type: 'checkbox', checked: !!t.rework_done });
   const drug = h('input', { value: t.extra_drug_codes, placeholder: 'e.g. Q0138 A9576' });
   const msg = h('div');
   const checkOut = h('div', { class: 'side' });
@@ -387,7 +388,7 @@ async function viewSetup(id) {
     sheet_link: f.sheet_link.value, tab_name: f.tab_name.value, status_col: f.status_col.value, insurance_col: f.insurance_col.value, notes_col: f.notes_col.value,
     row_from: f.row_from.value, row_to: f.row_to.value, dos_from: f.dos_from.value, dos_to: f.dos_to.value,
     portals: portalBoxes.map((l) => l.querySelector('input')).filter((i) => i.checked).map((i) => i.value),
-    special_instructions: special.value, extra_drug_codes: drug.value,
+    special_instructions: special.value, extra_drug_codes: drug.value, rework_done: rework.checked,
   });
   // Auto-save: every change is saved shortly after typing stops, and right away when leaving the page.
   const saveState = h('span', { class: 'muted save-state', 'aria-live': 'polite' }, 'All changes saved');
@@ -501,6 +502,8 @@ async function viewSetup(id) {
             h('label', {}, 'To row (optional)', input('row_to', { inputmode: 'numeric', placeholder: 'Last row' })),
             h('label', {}, 'DOS from (optional)', input('dos_from', { placeholder: 'MM/DD/YYYY' })),
             h('label', {}, 'DOS to (optional)', input('dos_to', { placeholder: 'MM/DD/YYYY' }))),
+          h('label', { class: 'inline' }, rework, 'Also work rows that already have a status (normally they are skipped as finished)'),
+          h('div', { class: 'muted' }, 'Use this to redo rows. The bot still searches Office Ally first, so it won\'t create duplicates, and it overwrites the Status cell with the new result.'),
           h('button', { type: 'button', class: 'primary', onclick: runCheck }, 'Check sheet header')),
         h('section', { class: 'card' }, h('h2', {}, '5 · Portals and instructions'), h('div', { class: 'row' }, portalBoxes),
           h('div', { class: 'success' }, 'Logins stay in the bot PC\'s Chrome password manager. Never type a password here; this form has no password field.'),

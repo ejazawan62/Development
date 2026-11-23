@@ -167,7 +167,7 @@ async function main() {
           `Office Ally:       ${data.oa_account}`,
           `Sheet / tab:       ${data.sheet_link} › ${data.tab_name}`,
           `Columns:           Status ${data.status_col} · Insurance ${data.insurance_col} · Notes ${data.notes_col}`,
-          `Rows:              ${data.row_from || 2}-${data.row_to || 'last row'}${data.dos_from || data.dos_to ? ` · DOS ${data.dos_from || '…'} to ${data.dos_to || '…'}` : ''}`,
+          `Rows:              ${data.row_from || 2}-${data.row_to || 'last row'}${data.rework_done ? ' (including rows that already have a status: redo them)' : ''}${data.dos_from || data.dos_to ? ` · DOS ${data.dos_from || '…'} to ${data.dos_to || '…'}` : ''}`,
           `Portals:           ${data.portals.join(', ')}`,
           `Portal links:      ${(data.portal_links || []).map((p) => `${p.name} ${p.url}`).join(' | ') || '-'}`,
           `Special:           ${data.special_instructions || '-'}`,
