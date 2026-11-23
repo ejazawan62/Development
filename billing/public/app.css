@@ -232,3 +232,4 @@ dialog form.plain { display: flex; flex-direction: column; gap: 14px; }
 .chat-panel > header .row { flex-wrap: nowrap; gap: 6px; }
 .chat-panel > header > div:first-child { min-width: 0; }
 .success .typed { overflow-wrap: anywhere; }
+.why { font-size: 12px; color: var(--warn); margin-top: 4px; max-width: 260px; line-height: 1.35; }

@@ -485,6 +485,12 @@ async function viewWorklist(id, filter = 'all') {
     portalBar(t.portal_links),
     h('nav', { class: 'tabs', 'aria-label': 'Task' }, h('a', { href: `#/tasks/${id}`, class: 'on' }, 'Worklist'), h('a', { href: `#/tasks/${id}/report` }, 'Report')),
     msg, alertEls,
+    (() => {
+      const unmatched = [...new Set(rows.filter((r) => r.in_scope && !r.record && r.blockers).flatMap((r) => r.blockers).map((b) => (b.match(/^Insurance "(.+)" is not in this practice's payer list/) || [])[1]).filter(Boolean))];
+      return unmatched.length ? h('div', { class: 'alert' }, h('strong', {}, `${unmatched.length} insurance name(s) not in the payer list`),
+        h('span', {}, unmatched.slice(0, 6).join(', ') + (unmatched.length > 6 ? '…' : '')),
+        h('a', { class: 'btn primary', href: `#/payers/${t.practice_id}` }, 'Map them in Payer lists')) : null;
+    })(),
     t.bot ? h('div', { class: 'alert' }, h('strong', {}, t.bot.live ? `Worked by ${t.bot.name}` : `${t.bot.name} has been silent for 20+ minutes`),
       h('span', { class: 'muted' }, t.current_row ? `Row ${t.current_row} in progress.` : ''),
       h('button', { type: 'button', class: 'small', onclick: async () => {
@@ -513,8 +519,8 @@ async function viewWorklist(id, filter = 'all') {
             h('td', { class: r.provider_ok ? 'ok' : 'bad' }, r.provider_ok ? '✓' : '✗'),
             h('td', { class: r.facility_ok ? 'ok' : 'bad' }, r.facility_ok ? '✓' : '✗'),
             h('td', { class: r.ndc === 'missing' ? 'bad' : r.ndc === 'ok' ? 'ok' : 'muted' }, r.ndc === 'missing' ? '✗' : r.ndc === 'ok' ? '✓' : 'n/a'),
-            h('td', {}, r.blockers.length ? pill(isClaim ? 'Must hold' : 'Blocked', 'warn') : pill('Ready', 'blue'))]
-            : [h('td', {}, r.todos ? `${r.todos} to look up` : '—'), h('td', {}, r.blockers.length ? pill('Blocked', 'warn') : pill('Ready', 'blue'))]),
+            h('td', {}, r.blockers.length ? [pill(isClaim ? 'Must hold' : 'Blocked', 'warn'), h('div', { class: 'why' }, r.blockers[0] + (r.blockers.length > 1 ? ` (+${r.blockers.length - 1} more)` : ''))] : pill('Ready', 'blue'))]
+            : [h('td', {}, r.todos ? `${r.todos} to look up` : '—'), h('td', {}, r.blockers.length ? [pill('Blocked', 'warn'), h('div', { class: 'why' }, r.blockers[0] + (r.blockers.length > 1 ? ` (+${r.blockers.length - 1} more)` : ''))] : pill('Ready', 'blue'))]),
         h('td', {}, r.current ? pill('Bot working…', 'dark') : outcomePill(r.record)),
         h('td', {}, r.record ? r.record.notes : r.sheet_notes)))))));
 }
