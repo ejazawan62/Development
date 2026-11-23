@@ -82,29 +82,34 @@ prints their new messages at the top as `>>> MESSAGE FROM <name>` / `>>> PAUSE` 
    `alert --kind otp`, then ask the user for the code in chat and wait. A login that fails twice: stop,
    `alert --kind login_failed`, and ask the user.
 
-## Row loop (one patient at a time, as fast as possible)
+## Working through the list (fast mode: load everything once)
 
-Speed matters: the user compares this with doing it by hand. Every tool call costs time, so:
-- **Use one command per patient:** record with `--next`, which writes this row and prints the next row's card in the
-  same step. Only call `bot next <task>` once, for the first row (or after a pause).
-- Need an overview first (for example "count how many are left")? Run `bot list <task>` once. Don't open rows one by
-  one to count.
+Speed matters: the user compares this with doing it by hand. Every tool call costs time.
+
+1. **Load every remaining patient at once:** `bot cards <task>`. It prints a full card for every row still to work
+   (values already formatted for Office Ally, payer and payer ID, lookups needed, blockers). Keep this list in mind
+   and work it **top to bottom**. Don't call `bot next` and don't open rows one by one.
+2. For each patient in order:
+   - BLOCKERS on the card: don't create anything. Claim tasks: hold with `--notes "Held — <exact reason>"`. Demo
+     tasks: fix what you can by looking it up (never guess), otherwise hold with the reason.
+   - Do the work below for the task type, in Office Ally and the portals.
+   - **Right after each patient, record it**: `bot record <task> <row> --outcome … --confirm …` (no `--next`).
+     One patient at a time, never several rows in one command; the sheet is updated at once.
+   - Read what `record` prints: it shows new messages from people and whether you're paused. PAUSED or STOP AND ASK
+     means stop and follow the messages.
+3. Before clicking **Save** in Office Ally (Add New Patient, Patient Visits) run `bot inbox <task>`, so a Pause
+   always arrives before anything is created.
+4. Every 10 patients or so, check each open portal tab is still signed in.
+5. When the list is done, run `bot cards <task>` once more (someone may have added rows). If it says no rows left,
+   run `bot report <task>` and give the user the report. Stopping early: finish the current patient, then
+   `bot release <task>`.
+
+Efficiency rules:
+- Need just an overview ("how many are left?")? `bot list <task>`.
 - In Office Ally, keep the Patients search open in one tab and reuse it; don't reload pages or take screenshots you
-  don't need. Read the page text to check results.
-- Don't narrate every click to the user. Report outcomes, problems and questions.
-
-1. `bot next <task>` for the first row. If any command says PAUSED (exit code 4) or "STOP AND ASK", stop and tell
-   the user exactly what it says. Do not continue until they reply.
-2. Read the whole card. BLOCKERS mean: do not create anything for this row.
-   - Claim tasks: hold with `--notes "Held — <exact reason>"` using the blocker text.
-   - Demo tasks: fix what you can by looking it up (never guess), otherwise hold with the reason.
-3. Do the work below for the task type.
-4. Record immediately, one row at a time (never batch several rows into one command):
-   `bot record <task> <row> --outcome … --confirm … --next`. Use every `--confirm` key the card lists for that
-   outcome, and only for steps you actually did and saw succeed. The output ends with the next row's card: go on.
-5. Every 10 patients or so, check each open portal tab is still signed in.
-6. When the output says every row is done (the task is released automatically), run `bot report <task>` and give the
-   user the report. If you must stop early, finish the current row first, then `bot release <task>`.
+  don't need. Read page text to check results. Use as few browser actions as possible per patient.
+- Don't narrate every click. Report outcomes, problems and questions.
+- `bot next <task>` / `record … --next` (one card at a time) still work if the user asks for that mode.
 
 ### Demo creation (Part A)
 

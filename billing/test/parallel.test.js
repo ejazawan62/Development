@@ -172,3 +172,17 @@ test('record --next: writes the row and hands back the next one in one step', as
   assert.ok(r.data.next, 'next row included');
   assert.ok(r.data.next.done || r.data.next.row_no > first.row_no);
 });
+
+test('"load everything" mode: all cards at once, then record rows one by one without next', async () => {
+  await req('POST', '/api/tasks/2/release');
+  const all = await req('GET', '/api/tasks/2/cards', null, 'Bot 1');
+  assert.equal(all.status, 200, JSON.stringify(all.data));
+  const rows = all.data.cards.map((c) => c.row_no);
+  assert.ok(rows.length >= 1);
+  for (const row of rows) {
+    const r = await req('POST', `/api/tasks/2/rows/${row}/record`, { outcome: 'held', notes: `Held — test batch ${row}` }, 'Bot 1');
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+  }
+  const again = await req('GET', '/api/tasks/2/cards', null, 'Bot 1');
+  assert.equal(again.data.cards.length, 0);
+});

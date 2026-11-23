@@ -708,13 +708,35 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
   }
   app.post('/api/tasks/:id/next', requireAny, wrap(async (req, res) => res.json(await nextRow(req, req.params.id))));
 
+  /** "Load everything" mode: every remaining row's card in one call, so the bot can work straight through. */
+  app.get('/api/tasks/:id/cards', requireAny, wrap(async (req, res) => {
+    let t = getTask(req.params.id);
+    if (t.state !== 'confirmed') throw new HttpError(409, 'Task is not confirmed. A person must confirm the Task Setup first.');
+    if (t.bot_paused) throw new HttpError(423, 'Paused: read the messages, then wait for "Resumed".', { inbox: req.token ? takeInbox(t.id) : [] });
+    if (req.token) claimTask(t, botId(req));
+    await loadRows(t); // one read of the whole range, so the cards are current
+    t = getTask(req.params.id);
+    const latest = latestRecords(t.id);
+    const cards = q.all('SELECT * FROM task_rows WHERE task_id = ? ORDER BY row_no', t.id)
+      .filter((r) => !latest.has(r.row_no))
+      .map((r) => ({ row_no: r.row_no, cells: JSON.parse(r.cells) }))
+      .filter((r) => scopeOf(t, r.cells).in_scope)
+      .map((r) => ({ row_no: r.row_no, card: cardFor(t, r.cells) }));
+    res.json({ task: { id: t.id, type: t.task_type, practice: t.practice_name, oa_account: t.oa_account, special_instructions: t.special_instructions },
+      outcomes_allowed: allowedOutcomes(t), cards, inbox: req.token ? takeInbox(t.id) : [] });
+  }));
+
   app.post('/api/tasks/:id/rows/:row/record', requireAny, wrap(async (req, res) => {
     const t = getTask(req.params.id);
     const rowNo = Number(req.params.row);
     const b = req.body || {};
     if (t.state !== 'confirmed') throw new HttpError(409, 'Task is not confirmed');
     if (req.token) requireHolder(t, botId(req));
-    if (req.token && t.current_row !== rowNo) throw new HttpError(409, t.current_row ? `Finish row ${t.current_row} first (one patient at a time).` : 'Call "next" to start a row before recording it.');
+    if (req.token && t.current_row && t.current_row !== rowNo) {
+      // A row started with "next" but not recorded: finish it first (one patient at a time).
+      if (!latestRecords(t.id).has(t.current_row)) throw new HttpError(409, `Finish row ${t.current_row} first (one patient at a time).`);
+    }
+    if (req.token && !scopeOf(t, cachedRow(t.id, rowNo) || [], false).in_scope) throw new HttpError(409, `Row ${rowNo} is not one of this task's rows to work.`);
     const latest = latestRecords(t.id).get(rowNo);
     if (latest && !(req.user && b.correction)) throw new HttpError(409, `Row ${rowNo} already has an outcome (${latest.outcome}). A person can record a correction in the app.`);
     const cached = cachedRow(t.id, rowNo);

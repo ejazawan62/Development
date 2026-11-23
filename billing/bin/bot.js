@@ -17,6 +17,7 @@ const HELP = `Usage: bot <command> [args]
   record <task> <row> --outcome <o> [--insurance "<primary>"] [--notes "<note>"] --confirm <k1,k2,...> [--next]
                                       Write the outcome to the sheet now; with --next also start the next row
   list <task>                         All rows at once (row, patient, DOB, DOS, insurance, member ID, status)
+  cards <task>                        Every remaining row's full card at once ("load everything" mode)
   alert <task> --kind otp|login_failed|question|error --message "<text>" [--row <n>]
   heartbeat <task>                    Tell the app the bot is still working
   report <task>                       End-of-session report
@@ -146,6 +147,18 @@ async function main() {
       data = await call('POST', `/api/tasks/${a}/release`);
       if (!opts.json) return console.log(`Task #${a} released by ${BOT}.`);
       break;
+    case 'cards': {
+      data = await call('GET', `/api/tasks/${a}/cards`);
+      if (!opts.json) {
+        process.stdout.write(inboxText(data));
+        if (!data.cards.length) return console.log('No rows left to work in this task.');
+        const out = [`[${BOT} · task #${a}] ${data.cards.length} patient(s) to work. Work them top to bottom; after EACH one run "record" (without --next).`];
+        for (const c of data.cards) out.push('', '─'.repeat(60), printCard({ ...c, outcomes_allowed: null }));
+        out.push('', 'RECORD EACH ONE WITH:', ...data.outcomes_allowed.map((o) => `  --outcome ${o.outcome}${Object.keys(o.checklist).length ? ` --confirm ${Object.keys(o.checklist).join(',')}` : ''}`));
+        return console.log(out.join('\n'));
+      }
+      break;
+    }
     case 'list': {
       data = await call('GET', `/api/tasks/${a}/rows`);
       if (!opts.json) {
