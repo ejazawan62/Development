@@ -142,3 +142,11 @@ test('deleting a bot token stops it at once and frees its tasks', async () => {
   assert.equal((await req('GET', '/api/tasks', null, 'Bot 1')).status, 401, 'token no longer works');
   assert.ok((await req('GET', '/api/tasks/1')).data.bot === null, 'task released');
 });
+
+test('Start bot button picks the next free bot name', async () => {
+  // Fresh tasks: the earlier tests deleted the token and freed every task.
+  const r = await req('POST', '/api/tasks/2/start-bot');
+  // In tests the real launcher runs on Linux, so it reports that it only works on Windows.
+  assert.equal(r.status, 501);
+  assert.match(r.data.prompt, /^You are Bot \d+\. Use the data-entry skill and start task 2\.$/);
+});

@@ -487,13 +487,28 @@ async function viewWorklist(id, filter = 'all') {
     msg, alertEls,
     (!t.bot && t.state === 'confirmed' && inScope.some((r) => !r.record)) ? (() => {
       const prompt = `You are Bot 1. Use the data-entry skill and start task ${t.id}.`;
-      return h('section', { class: 'card focus' }, h('h2', {}, 'Start a bot on this task'),
-        h('ol', { class: 'steps' },
-          h('li', {}, 'In Chrome, sign in to Office Ally and the portals this task needs.'),
-          h('li', {}, 'In the Claude desktop app: Code → New → your computer (local), folder C:\\BillingControl\\billing.'),
-          h('li', {}, 'Paste this message and send it: ', h('span', { class: 'typed' }, prompt), ' ', copyBtn(prompt)),
-          h('li', {}, 'The bot shows this Task Setup and waits for your "yes". Watch and talk to it here with Chat with bot.')),
-        h('div', { class: 'muted' }, 'Running a second bot at the same time? Change "Bot 1" to "Bot 2" and use a different Chrome profile.'));
+      const out = h('div');
+      const btn = h('button', { type: 'button', class: 'primary', disabled: !!t.bot_paused, onclick: async () => {
+        if (!confirm('Start a bot on this task?\n\nA Claude window opens on the PC that runs Billing Control. Make sure Chrome there is signed in to Office Ally and the portals. The bot will show the Task Setup in that window and wait for a "yes".')) return;
+        btn.disabled = true; btn.textContent = 'Starting…';
+        try {
+          const r = await api('POST', `/api/tasks/${id}/start-bot`);
+          out.replaceChildren(h('div', { class: 'success' }, `${r.message} Answer its first question there ("yes" to confirm the setup). After that you can follow it here with Chat with bot.`));
+          setTimeout(() => viewWorklist(id, filter), 4000);
+        } catch (e) {
+          btn.disabled = false; btn.textContent = 'Start bot';
+          out.replaceChildren(errorBox(e), e.data && e.data.prompt ? h('div', { class: 'row' }, 'Start it by hand instead: ', h('span', { class: 'typed' }, e.data.prompt), copyBtn(e.data.prompt)) : null);
+        }
+      } }, 'Start bot');
+      return h('section', { class: 'card focus' }, h('div', { class: 'row' }, h('h2', {}, 'Start a bot on this task'), h('div', { class: 'end' }, btn)),
+        h('div', { class: 'muted' }, 'Opens Claude in a new window on the PC running Billing Control, already pointed at this task. It picks the next free bot name (Bot 1, Bot 2…).'),
+        out,
+        h('details', {}, h('summary', {}, 'Start it by hand instead'),
+          h('ol', { class: 'steps' },
+            h('li', {}, 'In Chrome, sign in to Office Ally and the portals this task needs.'),
+            h('li', {}, 'In the Claude desktop app: Code → New → your computer (local), folder C:\\BillingControl\\billing.'),
+            h('li', {}, 'Paste this message and send it: ', h('span', { class: 'typed' }, prompt), ' ', copyBtn(prompt)),
+            h('li', {}, 'For a second bot at the same time, change "Bot 1" to "Bot 2" and use a different Chrome profile.'))));
     })() : null,
     (() => {
       const unmatched = [...new Set(rows.filter((r) => r.in_scope && !r.record && r.blockers).flatMap((r) => r.blockers).map((b) => (b.match(/^Insurance "(.+)" is not in this practice's payer list/) || [])[1]).filter(Boolean))];

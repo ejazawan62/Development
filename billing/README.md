@@ -100,6 +100,25 @@ It asks you in chat for one-time codes, and stops when a login fails twice or th
 
 The bot token can only work confirmed tasks. It cannot edit Task Setups, payer lists or users.
 
+## Start bot button
+
+On a confirmed task's worklist, **Start bot** opens a PowerShell window on the PC running Billing Control and
+starts Claude Code there (`claude --chrome "You are Bot N. Use the data-entry skill and start task X."`), with the next
+free bot name. It needs, on that PC:
+
+- Claude Code (command-line):
+
+  ```bash
+  irm https://claude.ai/install.ps1 | iex
+  ```
+
+- Claude in Chrome, signed in to the same Claude account, and Chrome signed in to Office Ally and the portals;
+- `BILLING_TOKEN` saved with `setx` (the window reads it from the PC; the app never stores the token).
+
+The window stays visible on purpose: Claude may ask to approve Chrome on a site, and the bot confirms the Task
+Setup with you before it starts. Keep the window open while the bot works. On a Mac or Linux PC the button shows
+the message to paste into Claude instead.
+
 ## Running several bots at once
 
 Each bot is a separate Claude conversation driving **its own Chrome profile** (its own Office Ally and portal

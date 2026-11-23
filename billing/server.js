@@ -6,6 +6,7 @@ const express = require('express');
 const { open, tx, hashPassword, verifyPassword, sha256, readSettings, writeSetting } = require('./lib/db');
 const { createSheets, appsScriptAdapter, colToLetter, letterToCol, spreadsheetIdFromLink } = require('./lib/sheets');
 const { appsScriptSource } = require('./lib/apps-script');
+const { windowsLauncher } = require('./lib/launcher');
 const { FIELDS, guessMapping, resolveColumn, detectColumn, missingRequired } = require('./lib/mapping');
 const checks = require('./lib/checks');
 const rules = require('./lib/rules');
@@ -22,7 +23,7 @@ const SHEET_FIELDS = new Set(['sheet_link', 'tab_name', 'status_col', 'insurance
 class HttpError extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; } }
 const bad = (msg, extra) => new HttpError(422, msg, extra);
 
-function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
+function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launcher = windowsLauncher, publicPort = Number(process.env.PORT || 3000) }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '3mb' }));
@@ -506,6 +507,22 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     releaseTask(t.id);
     audit('task', t.id, 'bot_release', { bot: t.bot_name }, actorName(req));
     res.json({ ok: true });
+  });
+
+  /** "Start bot" button: opens a Claude Code window on this PC with the next free bot name. */
+  app.post('/api/tasks/:id/start-bot', requireUser, (req, res) => {
+    const t = getTask(req.params.id);
+    if (t.state !== 'confirmed') throw bad('Confirm the Task Setup first.');
+    if (t.bot_paused) throw bad('This task is paused. Resolve or resume it first.');
+    if (t.bot_name && isLive(t)) throw bad(`${t.bot_name.split('/').pop()} is already working this task.`);
+    const busy = new Set(q.all("SELECT * FROM tasks WHERE state = 'confirmed' AND bot_name IS NOT NULL").map(hydrate).filter(isLive).map((x) => x.bot_name.split('/').pop()));
+    let n = 1;
+    while (busy.has(`Bot ${n}`)) n++;
+    const botName = `Bot ${n}`;
+    const r = launcher({ taskId: t.id, botName, billingHome: __dirname, billingUrl: `http://127.0.0.1:${publicPort}` });
+    audit('task', t.id, 'start_bot', { bot: botName, ok: r.ok }, actorName(req));
+    if (r.ok) postMessage(t.id, 'system', req.user.name, `${req.user.name} started ${botName}. It will show the Task Setup in its window and wait for a "yes".`, 'start');
+    res.status(r.ok ? 200 : 501).json({ ...r, bot: botName, prompt: `You are ${botName}. Use the data-entry skill and start task ${t.id}.` });
   });
 
   /** For a bot: confirmed tasks it could start now, and why the others can't. */
@@ -1065,7 +1082,7 @@ if (require.main === module) {
   }
   const port = Number(process.env.PORT || 3000);
   const host = process.env.HOST || '127.0.0.1';
-  createApp({ db, sheets, log: (e) => console.error(e) }).listen(port, host, () => {
+  createApp({ db, sheets, log: (e) => console.error(e), publicPort: port }).listen(port, host, () => {
     const how = { local: 'local test sheets, fake data only (connect Google in Users & bot access)', appsscript: 'Google Sheets via your Apps Script', google: `Google Sheets via ${sheets.serviceAccountEmail}` };
     console.log(`Billing Control on http://${host}:${port} · sheets: ${how[sheets.mode]}`);
   });
