@@ -113,3 +113,15 @@ test('a user can change their own password', async () => {
   const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'a@example.com', password: 'new-password-456' }) });
   assert.equal(login.status, 200);
 });
+
+test('remove a user: access ends, name stays, email can be reused', async () => {
+  const add = await call('POST', '/api/users', { name: 'Temp Staff', email: 'temp@example.com', password: 'temp-password-1', role: 'staff' });
+  assert.equal(add.status, 201);
+  const me = (await call('GET', '/api/me')).data;
+  assert.equal((await call('DELETE', `/api/users/${me.id}`)).status, 422, 'cannot remove yourself');
+  assert.equal((await call('DELETE', `/api/users/${add.data.id}`)).status, 200);
+  assert.ok(!(await call('GET', '/api/users')).data.some((u) => u.email === 'temp@example.com'));
+  const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'temp@example.com', password: 'temp-password-1' }) });
+  assert.equal(login.status, 401);
+  assert.equal((await call('POST', '/api/users', { name: 'Temp Again', email: 'temp@example.com', password: 'temp-password-2', role: 'staff' })).status, 201);
+});

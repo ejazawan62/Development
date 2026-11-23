@@ -172,6 +172,8 @@ function open(file) {
   for (const [col, type] of [['bot_name', 'TEXT'], ['bot_claimed_at', 'TEXT']]) {
     if (!have.has(col)) db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
   }
+  const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  if (!userCols.has('removed_at')) db.exec('ALTER TABLE users ADD COLUMN removed_at TEXT');
   // Starter portal links (all practices). Admins can change them in Settings.
   if (!db.prepare("SELECT value FROM settings WHERE key = 'portals_seeded'").get()) {
     const add = db.prepare('INSERT INTO portals (practice_id, name, url, sort) VALUES (NULL, ?, ?, ?)');

@@ -758,7 +758,23 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   });
 
   // ---------- users & bot tokens ----------
-  app.get('/api/users', requireAdmin, (req, res) => res.json(q.all('SELECT id, name, email, role, active, created_at FROM users ORDER BY name')));
+  app.get('/api/users', requireAdmin, (req, res) => res.json(q.all('SELECT id, name, email, role, active, created_at FROM users WHERE removed_at IS NULL ORDER BY name')));
+  // Removing keeps the person's name on past work (outcomes, audit log) but ends their access for good.
+  app.delete('/api/users/:id', requireAdmin, (req, res) => {
+    const u = q.get('SELECT * FROM users WHERE id = ? AND removed_at IS NULL', Number(req.params.id));
+    if (!u) throw new HttpError(404, 'User not found');
+    if (u.id === req.user.id) throw bad('You can\'t remove yourself. Ask another admin.');
+    if (u.role === 'admin' && q.get("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1 AND removed_at IS NULL AND id != ?", u.id).n === 0) {
+      throw bad('This is the last admin. Make someone else an admin first.');
+    }
+    tx(db, () => {
+      // Free the email so the same person can be added again later.
+      q.run("UPDATE users SET active = 0, removed_at = datetime('now'), email = ? WHERE id = ?", `removed-${u.id}-${u.email}`, u.id);
+      q.run('DELETE FROM sessions WHERE user_id = ?', u.id);
+      audit('user', u.id, 'remove', { email: u.email, name: u.name }, actorName(req));
+    });
+    res.json({ ok: true });
+  });
   app.post('/api/users', requireAdmin, (req, res) => {
     const { name, email, password, role } = req.body || {};
     if (!name || !email || String(password || '').length < 10) throw bad('Name, email and a password of at least 10 characters are required');
@@ -773,7 +789,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     }
   });
   app.put('/api/users/:id', requireAdmin, (req, res) => {
-    const u = q.get('SELECT * FROM users WHERE id = ?', Number(req.params.id));
+    const u = q.get('SELECT * FROM users WHERE id = ? AND removed_at IS NULL', Number(req.params.id));
     if (!u) throw new HttpError(404, 'User not found');
     const b = req.body || {};
     if (b.password != null) {

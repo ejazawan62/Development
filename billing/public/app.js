@@ -676,7 +676,11 @@ async function viewAdmin() {
         h('td', {}, t.revoked ? 'revoked' : h('button', { type: 'button', class: 'small', onclick: async () => { if (confirm(`Revoke ${t.name}?`)) { await api('POST', `/api/tokens/${t.id}/revoke`); viewAdmin(); } } }, 'Revoke'))))))),
     h('section', { class: 'card' }, h('h2', {}, 'Users'),
       h('table', {}, h('tbody', {}, users.map((u) => h('tr', { class: u.active ? '' : 'dim' }, h('td', {}, u.name), h('td', {}, u.email), h('td', {}, u.role),
-        h('td', {}, u.id === ME.id ? '(you)' : h('button', { type: 'button', class: 'small', onclick: async () => { await api('PUT', `/api/users/${u.id}`, { active: !u.active }); viewAdmin(); } }, u.active ? 'Deactivate' : 'Reactivate'),
+        h('td', {}, u.id === ME.id ? '(you)' : [h('button', { type: 'button', class: 'small', onclick: async () => { await api('PUT', `/api/users/${u.id}`, { active: !u.active }); viewAdmin(); } }, u.active ? 'Deactivate' : 'Reactivate'), ' ',
+          h('button', { type: 'button', class: 'small', onclick: async () => {
+            if (!confirm(`Remove ${u.name} (${u.email})?\n\nThey lose access right away and disappear from this list. Their name stays on work they already did. To give access again later, add them as a new user.`)) return;
+            try { await api('DELETE', `/api/users/${u.id}`); viewAdmin(); } catch (e) { msg.replaceChildren(errorBox(e)); msg.scrollIntoView(); }
+          } }, 'Remove')],
           ' ', h('button', { type: 'button', class: 'small', onclick: async () => { const p = prompt(`New password for ${u.email} (10+ characters)`); if (p) { try { await api('PUT', `/api/users/${u.id}`, { password: p }); msg.replaceChildren(h('div', { class: 'success' }, 'Password changed.')); } catch (e) { msg.replaceChildren(errorBox(e)); } } } }, 'Set password')))))),
       h('div', { class: 'grid' }, h('label', {}, 'Name', nu.name), h('label', {}, 'Email', nu.email), h('label', {}, 'Password (10+)', nu.password), h('label', {}, 'Role', nu.role)),
       h('button', { type: 'button', onclick: async () => {
