@@ -104,3 +104,12 @@ test('delete a task: removes it and its records, sheet untouched', async () => {
   assert.equal(d1.status, 200, JSON.stringify(d1.data));
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), before);
 });
+
+test('a user can change their own password', async () => {
+  const wrong = await call('PUT', '/api/me/password', { current: 'nope', password: 'new-password-456' });
+  assert.equal(wrong.status, 422);
+  const ok = await call('PUT', '/api/me/password', { current: 'test-password-123', password: 'new-password-456' });
+  assert.equal(ok.status, 200);
+  const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'a@example.com', password: 'new-password-456' }) });
+  assert.equal(login.status, 200);
+});

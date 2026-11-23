@@ -134,10 +134,31 @@ function shell(active, ...content) {
         h('span', { class: 'names' }, h('span', { class: 'company' }, BRAND.company.toUpperCase()), h('span', { class: 'product' }, 'Billing Control'))),
       h('nav', { 'aria-label': 'Main' }, nav),
       h('div', { class: 'who' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, initials), h('span', { class: 'name' }, `${ME.name} · ${ME.role}`),
+        h('button', { type: 'button', class: 'small', onclick: changePassword }, 'Change password'),
         h('button', { type: 'button', class: 'small', onclick: async () => { await api('POST', '/api/logout'); ME = null; render(); } }, icon('logout'), 'Sign out'))),
     ME.sheets_mode === 'local' ? h('div', { class: 'banner-demo' }, 'Test mode: using local test sheets with fake data. ', ME.role === 'admin' ? h('a', { href: '#/admin' }, 'Connect Google Sheets') : 'An admin can connect Google Sheets', ' before real work.') : null,
     h('main', {}, content));
   $app.replaceChildren(page);
+}
+
+function changePassword() {
+  const cur = h('input', { type: 'password', autocomplete: 'current-password' });
+  const n1 = h('input', { type: 'password', autocomplete: 'new-password' });
+  const n2 = h('input', { type: 'password', autocomplete: 'new-password' });
+  const msg = h('div');
+  const dlg = h('dialog', { class: 'card', 'aria-label': 'Change password' },
+    h('form', { class: 'plain', onsubmit: async (ev) => {
+      ev.preventDefault();
+      if (n1.value !== n2.value) { msg.replaceChildren(errorBox(new Error('The new passwords do not match'))); return; }
+      try { await api('PUT', '/api/me/password', { current: cur.value, password: n1.value }); msg.replaceChildren(h('div', { class: 'success' }, 'Password changed.')); setTimeout(() => dlg.close(), 1200); }
+      catch (e) { msg.replaceChildren(errorBox(e)); }
+    } },
+    h('h2', {}, 'Change your password'),
+    h('label', {}, 'Current password', cur), h('label', {}, 'New password (10+ characters)', n1), h('label', {}, 'New password again', n2), msg,
+    h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary' }, 'Change password'), h('button', { type: 'button', onclick: () => dlg.close() }, 'Cancel'))));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
 }
 
 // ---------- views ----------

@@ -115,6 +115,18 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     res.status(401).json({ error: 'Sign in required' });
   });
 
+  app.put('/api/me/password', requireUser, (req, res) => {
+    const { current, password } = req.body || {};
+    if (!verifyPassword(String(current || ''), req.user.password_hash)) throw bad('Your current password is wrong');
+    if (String(password || '').length < 10) throw bad('The new password must be at least 10 characters');
+    if (password === current) throw bad('Pick a password different from the current one');
+    q.run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(password), req.user.id);
+    const sid = parseCookies(req.get('cookie')).sid;
+    q.run('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?', req.user.id, sha256(sid || ''));
+    audit('user', req.user.id, 'password_change', null, actorName(req));
+    res.json({ ok: true });
+  });
+
   // ---------- task helpers ----------
   function hydrate(t) {
     if (!t) return null;
