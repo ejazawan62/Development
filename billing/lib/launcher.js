@@ -23,6 +23,9 @@ function buildBotCommand({ taskId, botName, billingHome, billingUrl }) {
     `$env:BILLING_URL = ${psQuote(billingUrl)}`,
     `$env:BILLING_BOT = ${psQuote(botName)}`,
     "$env:BILLING_TOKEN = [Environment]::GetEnvironmentVariable('BILLING_TOKEN', 'User')",
+    // Billing Control may have been started before Claude Code was installed: reload PATH and add the
+    // native installer's folder, so "claude" is found either way.
+    "$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + (Join-Path $env:USERPROFILE '.local\\bin')",
     `if (-not $env:BILLING_TOKEN) { Write-Host ${psQuote('BILLING_TOKEN is not set on this PC. Create a bot token in Billing Control (Settings), then run:  setx BILLING_TOKEN "<token>"')} -ForegroundColor Yellow; return }`,
     `if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { Write-Host ${psQuote('Claude Code is not installed. Run this in PowerShell, then click Start bot again:  irm https://claude.ai/install.ps1 | iex')} -ForegroundColor Yellow; return }`,
     `Write-Host ${psQuote(`Starting ${botName} on task ${taskId}. Keep this window open while it works.`)} -ForegroundColor Cyan`,
