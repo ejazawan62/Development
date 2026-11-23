@@ -1,0 +1,18 @@
+{
+  "name": "dpis-medical-billing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Medical billing: patient demographics, claim creation, scrubbing and 837P batch submission",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "seed:demo": "node --disable-warning=ExperimentalWarning lib/seed-demo.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "express": "4.22.1"
+  }
+}
