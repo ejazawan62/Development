@@ -95,6 +95,19 @@ function progressBar(t) {
 // ---------- realtime chat with the bot ----------
 let CHAT = null;
 let PENDING_SAVE = null;
+let LIVE_TIMER = null;
+/** Re-draws the worklist every 10 s (rows, alerts, bot state) unless the person is typing or a dialog is open. */
+function liveRefresh(id, getFilter) {
+  clearInterval(LIVE_TIMER);
+  LIVE_TIMER = setInterval(() => {
+    if (!location.hash.match(new RegExp(`^#/tasks/${id}/?$`))) { clearInterval(LIVE_TIMER); return; }
+    const a = document.activeElement;
+    const typing = a && a !== document.body && ['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName) && !(CHAT && CHAT.el.contains(a));
+    if (typing || document.querySelector('dialog[open]')) return;
+    const y = window.scrollY;
+    viewWorklist(id, getFilter()).then(() => window.scrollTo(0, y)).catch(() => {});
+  }, 10000);
+}
 window.addEventListener('beforeunload', () => { if (PENDING_SAVE) PENDING_SAVE(); });
 function unmountChat() {
   if (!CHAT) return;
@@ -882,6 +895,7 @@ async function viewAdmin(flash, newToken) {
 let brandingLoaded = false;
 async function render() {
   unmountChat();
+  clearInterval(LIVE_TIMER);
   if (PENDING_SAVE) { PENDING_SAVE(); PENDING_SAVE = null; }
   try {
     if (!brandingLoaded) { await loadBranding(); brandingLoaded = true; }
@@ -894,7 +908,7 @@ async function render() {
       if (parts[2] === 'setup') return await viewSetup(parts[1]);
       if (parts[2] === 'report') await viewReport(parts[1]);
       else if (parts[2] === 'rows' && parts[3]) await viewRow(parts[1], parts[3]);
-      else await viewWorklist(parts[1]);
+      else { await viewWorklist(parts[1]); liveRefresh(parts[1], () => (document.querySelector('.chip.on') ? ({ All: 'all', 'Pre-check failed': 'failed', Held: 'held', 'Not started': 'todo' })[document.querySelector('.chip.on').textContent] || 'all' : 'all')); }
       if (!location.hash.endsWith('/setup')) mountChat(parts[1]);
       return;
     }
