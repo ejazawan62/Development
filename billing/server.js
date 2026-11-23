@@ -45,7 +45,8 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
   app.use(express.json({ limit: '3mb' }));
   app.use((req, res, next) => {
     res.set({
-      'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      // frame-src https: lets the "Show inside" panel try to embed portal pages (the portal decides if it allows it).
+      'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-src https:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
       'X-Frame-Options': 'DENY', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store',
     });
     next();

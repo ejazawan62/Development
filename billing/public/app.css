@@ -246,3 +246,17 @@ button.primary.busy::after, button.danger.busy::after { border-color: var(--bran
 .toast { background: var(--ink); color: var(--bg); border-radius: 10px; padding: 11px 14px; font-size: 14px; box-shadow: var(--shadow-lg); transition: opacity 0.5s, transform 0.5s; }
 .toast.error { background: var(--warn); color: #fff; }
 .toast.gone { opacity: 0; transform: translateY(8px); }
+
+/* ---------- portal shown inside the page ---------- */
+.portal-pair { display: inline-flex; }
+.portal-pair button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.portal-pair button:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; padding-left: 8px; padding-right: 8px; }
+.embed-panel { position: fixed; top: 64px; right: 0; bottom: 0; width: 50vw; z-index: 20; background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; }
+.embed-panel > header { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); flex-wrap: wrap; }
+.embed-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.embed-tabs button.on { background: var(--brand-soft); border-color: var(--brand-line); color: var(--ok-ink); }
+.embed-note { font-size: 12px; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--line-soft); }
+.embed-panel iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+body.with-embed main { margin-right: 50vw; max-width: none; }
+body.with-embed .chat { right: calc(50vw + 20px); }
+@media (max-width: 900px) { .embed-panel { width: 100vw; top: 0; } body.with-embed main { margin-right: 0; } }

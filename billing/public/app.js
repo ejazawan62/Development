@@ -242,12 +242,36 @@ function openPortal(url) {
   const feat = `popup=yes,noopener=yes,width=${w},height=${screen.availHeight},left=${(screen.availLeft || 0) + w},top=${screen.availTop || 0}`;
   window.open(url, '_blank', feat);
 }
+// ---------- portals shown inside Billing Control (when the portal allows it) ----------
+let EMBED = null;
+function closeEmbed() {
+  if (!EMBED) return;
+  EMBED.el.remove();
+  document.body.classList.remove('with-embed');
+  EMBED = null;
+}
+function openEmbed(links, portal) {
+  closeEmbed();
+  const frame = h('iframe', { title: portal.name, src: portal.url, referrerpolicy: 'no-referrer' });
+  const tabs = h('div', { class: 'embed-tabs', role: 'tablist' }, links.map((p) => h('button', { type: 'button', role: 'tab', class: `small ${p.id === portal.id ? 'on' : ''}`, 'aria-selected': String(p.id === portal.id), onclick: () => openEmbed(links, p) }, p.name)));
+  const el = h('section', { class: 'embed-panel', 'aria-label': `${portal.name} inside Billing Control` },
+    h('header', {}, tabs, h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'small', title: 'Open in its own window instead', onclick: () => openPortal(portal.url) }, 'Open in window ↗'),
+      h('button', { type: 'button', class: 'small', 'aria-label': 'Close', onclick: closeEmbed }, '✕'))),
+    h('div', { class: 'embed-note' }, `Blank or "refused to connect" below? Then ${portal.name} doesn't allow being shown inside other sites (a security setting on their side). Use "Open in window" instead. If it does show, its login may still not stick here, because Chrome blocks portal cookies inside other sites.`),
+    frame);
+  document.body.append(el);
+  document.body.classList.add('with-embed');
+  EMBED = { el };
+}
 function portalBar(links) {
   if (!links || !links.length) return null;
   return h('div', { class: 'portalbar', role: 'group', 'aria-label': 'Portals' },
     h('span', { class: 'muted' }, icon('portal'), 'Portals'),
-    links.map((p) => h('button', { type: 'button', class: 'small', title: p.url, onclick: () => openPortal(p.url) }, `${p.name} ↗`)),
-    h('span', { class: 'muted tip' }, 'Tip: press Windows + ← to keep this app on the left half.'));
+    links.map((p) => h('span', { class: 'portal-pair' },
+      h('button', { type: 'button', class: 'small', title: `Show ${p.name} inside Billing Control`, onclick: () => openEmbed(links, p) }, p.name),
+      h('button', { type: 'button', class: 'small', title: `Open ${p.name} in its own window`, 'aria-label': `Open ${p.name} in its own window`, onclick: () => openPortal(p.url) }, '↗'))),
+    h('span', { class: 'muted tip' }, 'Name = show inside this page · ↗ = own window'));
 }
 
 // ---------- layout ----------
@@ -995,6 +1019,7 @@ watchVersion();
 let brandingLoaded = false;
 async function render() {
   unmountChat();
+  if (EMBED && !/^#\/tasks\/\d+/.test(location.hash)) closeEmbed();
   clearInterval(LIVE_TIMER);
   if (PENDING_SAVE) { PENDING_SAVE(); PENDING_SAVE = null; }
   try {
