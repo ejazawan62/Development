@@ -285,7 +285,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     const t = getTask(req.params.id);
     if (req.token && t.state !== 'confirmed') throw new HttpError(403, 'This task is not confirmed for the bot yet');
     const alerts = q.all('SELECT * FROM alerts WHERE task_id = ? ORDER BY id DESC LIMIT 50', t.id);
-    res.json({ ...publicTask(t), alerts, outcomes_allowed: allowedOutcomes(t), fields: FIELDS.map((f) => ({ key: f.key, label: f.label })) });
+    res.json({ ...publicTask(t), alerts, outcomes_allowed: allowedOutcomes(t), fields: FIELDS.map((f) => ({ key: f.key, label: f.label })), portal_links: portalsFor(t.practice_id) });
   });
 
   app.put('/api/tasks/:id', requireUser, (req, res) => {
@@ -613,6 +613,45 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
       }
     }
     res.json([...found.values()]);
+  });
+
+  // ---------- portal links ----------
+  function portalsFor(practiceId) {
+    return q.all('SELECT * FROM portals WHERE practice_id IS NULL OR practice_id = ? ORDER BY sort, id', practiceId || -1);
+  }
+  function portalBody(b) {
+    const name = String(b.name || '').trim().slice(0, 60);
+    const url = String(b.url || '').trim();
+    if (!name) throw bad('Give the portal a name');
+    let u;
+    try { u = new URL(url); } catch { throw bad('Enter the full portal address, starting with https://'); }
+    if (u.protocol !== 'https:') throw bad('Portal addresses must start with https://');
+    const practiceId = b.practice_id ? Number(b.practice_id) : null;
+    if (practiceId && !q.get('SELECT id FROM practices WHERE id = ?', practiceId)) throw bad('Unknown practice');
+    return { name, url: u.toString(), practice_id: practiceId, sort: Number(b.sort) || 0 };
+  }
+  app.get('/api/portals', requireAny, (req, res) => {
+    if (req.query.practice_id) return res.json(portalsFor(Number(req.query.practice_id)));
+    res.json(q.all('SELECT p.*, pr.name AS practice_name FROM portals p LEFT JOIN practices pr ON pr.id = p.practice_id ORDER BY p.practice_id IS NOT NULL, pr.name, p.sort, p.id'));
+  });
+  app.post('/api/portals', requireAdmin, (req, res) => {
+    const p = portalBody(req.body || {});
+    const r = q.run('INSERT INTO portals (practice_id, name, url, sort) VALUES (?,?,?,?)', p.practice_id, p.name, p.url, p.sort);
+    audit('portal', Number(r.lastInsertRowid), 'create', p, actorName(req));
+    res.status(201).json({ id: Number(r.lastInsertRowid) });
+  });
+  app.put('/api/portals/:id', requireAdmin, (req, res) => {
+    const cur = q.get('SELECT * FROM portals WHERE id = ?', Number(req.params.id));
+    if (!cur) throw new HttpError(404, 'Portal not found');
+    const p = portalBody({ ...cur, ...req.body });
+    q.run('UPDATE portals SET practice_id = ?, name = ?, url = ?, sort = ? WHERE id = ?', p.practice_id, p.name, p.url, p.sort, cur.id);
+    audit('portal', cur.id, 'update', p, actorName(req));
+    res.json({ ok: true });
+  });
+  app.delete('/api/portals/:id', requireAdmin, (req, res) => {
+    q.run('DELETE FROM portals WHERE id = ?', Number(req.params.id));
+    audit('portal', Number(req.params.id), 'delete', null, actorName(req));
+    res.json({ ok: true });
   });
 
   // ---------- users & bot tokens ----------

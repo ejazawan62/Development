@@ -130,6 +130,13 @@ CREATE TABLE IF NOT EXISTS audit (
   actor TEXT,
   at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS portals (
+  id INTEGER PRIMARY KEY,
+  practice_id INTEGER REFERENCES practices(id),
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -160,6 +167,13 @@ function open(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  // Starter portal links (all practices). Admins can change them in Settings.
+  if (!db.prepare("SELECT value FROM settings WHERE key = 'portals_seeded'").get()) {
+    const add = db.prepare('INSERT INTO portals (practice_id, name, url, sort) VALUES (NULL, ?, ?, ?)');
+    [['Office Ally', 'https://www.officeally.com/'], ['NGS Medicare', 'https://www.ngsmedicare.com/'], ['ePACES (NY Medicaid)', 'https://www.emedny.org/epaces/'],
+      ['UHC Provider', 'https://www.uhcprovider.com/'], ['Availity', 'https://www.availity.com/']].forEach(([n, u], i) => add.run(n, u, i));
+    db.prepare("INSERT INTO settings (key, value) VALUES ('portals_seeded', '1')").run();
+  }
   return db;
 }
 

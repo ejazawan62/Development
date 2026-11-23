@@ -115,6 +115,7 @@ async function main() {
           `Columns:           Status ${data.status_col} · Insurance ${data.insurance_col} · Notes ${data.notes_col}`,
           `Rows:              ${data.row_from || 2}-${data.row_to || 'last row'}${data.dos_from || data.dos_to ? ` · DOS ${data.dos_from || '…'} to ${data.dos_to || '…'}` : ''}`,
           `Portals:           ${data.portals.join(', ')}`,
+          `Portal links:      ${(data.portal_links || []).map((p) => `${p.name} ${p.url}`).join(' | ') || '-'}`,
           `Special:           ${data.special_instructions || '-'}`,
           `State:             ${data.state}${data.bot_paused ? ' · PAUSED (stop and ask the user)' : ''}`,
           '', 'Confirm this setup with the user before touching any record.',

@@ -77,3 +77,18 @@ test('blank tab, columns and rows are filled in from the sheet', async () => {
   assert.equal(rep.next_row, 5);
   assert.match(rep.text, /rows 2–last row/);
 });
+
+test('portal links: starter list, practice-specific links, https only', async () => {
+  let all = (await call('GET', '/api/portals')).data;
+  assert.ok(all.some((p) => p.name === 'Office Ally'));
+  const bad = await call('POST', '/api/portals', { name: 'X', url: 'http://insecure.example.com' });
+  assert.equal(bad.status, 422);
+  const pr = (await call('GET', '/api/practices')).data[0];
+  const add = await call('POST', '/api/portals', { name: 'Fidelis', url: 'https://provider.example.com/login', practice_id: pr.id });
+  assert.equal(add.status, 201);
+  const t = (await call('GET', '/api/tasks/1')).data;
+  assert.ok(t.portal_links.some((p) => p.name === 'Fidelis'));
+  assert.ok(t.portal_links.some((p) => p.name === 'Office Ally'));
+  all = (await call('GET', '/api/portals?practice_id=999')).data;
+  assert.ok(!all.some((p) => p.name === 'Fidelis'), 'other practices do not see it');
+});

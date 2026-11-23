@@ -41,7 +41,9 @@ the row still belongs to the same patient, and refuses outcomes that break the r
 
 1. `bot show <task>`. Paste the summary to the user and ask them to confirm the practice,
    provider, sheet, tab and columns. **Wait for a yes.** Never reuse a setup from another task.
-2. Open Office Ally and switch to the practice/account named in the setup before touching anything.
+2. Open Office Ally and the portals from the **Portal links** that `show` prints (the same buttons the team uses
+   in Billing Control). Don't use other addresses for them. Switch Office Ally to the practice/account named in the
+   setup before touching anything.
 3. Logins: use the saved logins in Chrome. If the user gives you a password, type it only into the login
    field; never repeat it in chat, notes, reports or commands. One-time code: run
    `alert --kind otp`, then ask the user for the code in chat and wait. A login that fails twice: stop,

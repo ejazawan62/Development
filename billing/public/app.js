@@ -63,6 +63,21 @@ function progressBar(t) {
   return h('div', {}, bar, h('div', { class: 'muted' }, `${parts.join(' · ') || 'Not started'}${total ? ` · ${total - t.worked} left` : ''}`));
 }
 
+// ---------- portals ----------
+function openPortal(url) {
+  // Opens the portal in its own window on the right half of the screen, so the app stays visible on the left.
+  const w = Math.floor(screen.availWidth / 2);
+  const feat = `popup=yes,noopener=yes,width=${w},height=${screen.availHeight},left=${(screen.availLeft || 0) + w},top=${screen.availTop || 0}`;
+  window.open(url, '_blank', feat);
+}
+function portalBar(links) {
+  if (!links || !links.length) return null;
+  return h('div', { class: 'portalbar', role: 'group', 'aria-label': 'Portals' },
+    h('span', { class: 'muted' }, 'Portals:'),
+    links.map((p) => h('button', { type: 'button', class: 'small', title: p.url, onclick: () => openPortal(p.url) }, `${p.name} ↗`)),
+    h('span', { class: 'muted tip' }, 'Tip: press Windows + ← to keep this app on the left half.'));
+}
+
 // ---------- layout ----------
 function shell(active, ...content) {
   const link = (href, text, key) => h('a', { href, class: active === key ? 'on' : '' }, text);
@@ -282,6 +297,7 @@ async function viewWorklist(id, filter = 'all') {
     h('div', { class: 'row' }, h('h1', {}, `Task #${t.id} · ${TYPE[t.task_type]}`),
       h('span', { class: 'muted' }, `${t.practice_name} · ${t.provider_name} · NPI ${t.provider_npi} · ${t.tab_name} · rows ${t.row_from || 2}–${t.row_to || 'last'}`),
       h('span', { class: 'muted end' }, t.confirmed_at ? `Confirmed ${t.confirmed_at} UTC` : '')),
+    portalBar(t.portal_links),
     h('nav', { class: 'tabs', 'aria-label': 'Task' }, h('a', { href: `#/tasks/${id}`, class: 'on' }, 'Worklist'), h('a', { href: `#/tasks/${id}/report` }, 'Report')),
     msg, alertEls,
     h('div', { class: 'stats' },
@@ -391,6 +407,7 @@ async function viewRow(id, rowNo) {
 
   shell('tasks',
     h('div', { class: 'row' }, h('a', { href: `#/tasks/${id}` }, `← Task #${id}`)),
+    portalBar(t.portal_links),
     h('div', { class: 'row' }, h('h1', {}, `Row ${rowNo}${c.kind === 'claim' ? ` · ${c.patient.last}, ${c.patient.first}` : ` · ${c.fields[0].value}, ${c.fields[1].value}`}`),
       h('span', { class: 'muted' }, `DOS ${c.dos_mdy || '—'}`), r.current ? pill('Bot working on this row', 'dark') : null,
       c.blockers.length ? h('span', { class: 'end' }, pill(`${c.blockers.length} problem(s)`, 'warn')) : h('span', { class: 'end' }, pill('Pre-checks pass', 'blue'))),
@@ -506,12 +523,37 @@ function sheetsCard(gs, msg) {
   return card;
 }
 
+function portalsCard(portals, practices, msg) {
+  const practiceSel = (val) => h('select', { 'aria-label': 'Practice' }, h('option', { value: '' }, 'All practices'), practices.map((p) => h('option', { value: p.id, selected: p.id === val }, p.name)));
+  const rowFor = (p) => {
+    const name = h('input', { value: p.name, 'aria-label': 'Portal name' });
+    const url = h('input', { value: p.url, 'aria-label': 'Portal address', class: 'mono' });
+    const pr = practiceSel(p.practice_id);
+    return h('tr', {}, h('td', {}, name), h('td', {}, url), h('td', {}, pr), h('td', {},
+      h('button', { type: 'button', class: 'small', onclick: () => openPortal(url.value) }, 'Open'), ' ',
+      h('button', { type: 'button', class: 'small', onclick: async () => {
+        try { await api('PUT', `/api/portals/${p.id}`, { name: name.value, url: url.value, practice_id: pr.value || null }); msg.replaceChildren(h('div', { class: 'success' }, `Saved ${name.value}.`)); } catch (e) { msg.replaceChildren(errorBox(e)); }
+      } }, 'Save'), ' ',
+      h('button', { type: 'button', class: 'small', onclick: async () => { if (confirm(`Remove ${p.name}?`)) { await api('DELETE', `/api/portals/${p.id}`); viewAdmin(); } } }, 'Remove')));
+  };
+  const nn = h('input', { placeholder: 'e.g. Fidelis portal', 'aria-label': 'New portal name' });
+  const nu = h('input', { placeholder: 'https://…', 'aria-label': 'New portal address', class: 'mono' });
+  const np = practiceSel(null);
+  return h('section', { class: 'card' }, h('h2', {}, 'Portals'),
+    h('div', { class: 'muted' }, 'One-click buttons on every task page. Use the exact login page address. Logins stay in Chrome\'s password manager; never put a password in an address.'),
+    h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Name', 'Address', 'Shown for', ''].map((x) => h('th', {}, x)))),
+      h('tbody', {}, portals.map(rowFor), h('tr', {}, h('td', {}, nn), h('td', {}, nu), h('td', {}, np), h('td', {},
+        h('button', { type: 'button', class: 'small primary', onclick: async () => {
+          try { await api('POST', '/api/portals', { name: nn.value, url: nu.value, practice_id: np.value || null }); viewAdmin(); } catch (e) { msg.replaceChildren(errorBox(e)); msg.scrollIntoView(); }
+        } }, 'Add')))))));
+}
+
 async function viewAdmin() {
-  const [users, tokens, gs] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets')]);
+  const [users, tokens, gs, portals, practices] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets'), api('GET', '/api/portals'), api('GET', '/api/practices')]);
   const msg = h('div');
   const nu = { name: h('input'), email: h('input', { type: 'email' }), password: h('input', { type: 'password', autocomplete: 'new-password' }), role: h('select', {}, h('option', { value: 'staff' }, 'staff'), h('option', { value: 'admin' }, 'admin')) };
   const tokName = h('input', { placeholder: 'e.g. OFFICE-VM-01' });
-  shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, sheetsCard(gs, msg),
+  shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, sheetsCard(gs, msg), portalsCard(portals, practices, msg),
     h('section', { class: 'card' }, h('h2', {}, 'Bot tokens'),
       h('div', { class: 'muted' }, 'The bot PC uses a token instead of a password. It can only work confirmed tasks: it cannot change Task Setups, payer lists or users.'),
       h('div', { class: 'row' }, tokName, h('button', { type: 'button', class: 'primary', onclick: async () => {
