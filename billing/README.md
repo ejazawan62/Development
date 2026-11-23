@@ -42,7 +42,7 @@ npm start
 ```
 
 The first start creates an admin account and prints its password once. Open http://127.0.0.1:3000,
-sign in and change the password (Users & bot access → Set password). Set `ADMIN_EMAIL` /
+sign in and change the password (top bar → Change password). Set `ADMIN_EMAIL` /
 `ADMIN_PASSWORD` before the first start to choose them yourself.
 
 Settings (environment variables):
@@ -73,7 +73,7 @@ npm run seed:demo
 npm start
 ```
 
-Sign in as `admin@example.com` / `demo-admin-pass`. Two DEMO tasks are ready: open each, click
+Sign in with username `admin@example.com` and password `demo-admin-pass`. Two DEMO tasks are ready: open each, click
 **Check sheet header**, tick the confirmation and confirm. The fake sheet is `data/local-sheets.json`.
 
 ## Set up the bot PC

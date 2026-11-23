@@ -80,7 +80,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
   app.post('/api/login', (req, res) => {
-    const email = String(req.body.email || '').trim().toLowerCase();
+    const email = String(req.body.username || req.body.email || '').trim().toLowerCase();
     const key = `${email}|${req.ip}`;
     const f = loginFailures.get(key) || { n: 0, until: 0 };
     if (f.until > Date.now()) return res.status(429).json({ error: 'Too many attempts. Wait 15 minutes.' });
@@ -108,7 +108,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   });
   app.get('/api/me', (req, res) => {
     if (req.user) {
-      return res.json({ id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, sheets_mode: sheets.mode,
+      return res.json({ id: req.user.id, name: req.user.name, email: req.user.email, username: req.user.email, role: req.user.role, sheets_mode: sheets.mode,
         service_account: sheets.serviceAccountEmail || null, sheets_account: readSettings(db).apps_script_account || null });
     }
     if (req.token) return res.json({ bot: true, name: req.token.name, sheets_mode: sheets.mode });
@@ -775,18 +775,41 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     });
     res.json({ ok: true });
   });
+  // Readable one-time passwords (no look-alike characters). Shown to the admin once; only a hash is stored.
+  function newPassword() {
+    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    const bytes = crypto.randomBytes(12);
+    const s = [...bytes].map((b) => chars[b % chars.length]).join('');
+    return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8, 12)}`;
+  }
   app.post('/api/users', requireAdmin, (req, res) => {
-    const { name, email, password, role } = req.body || {};
-    if (!name || !email || String(password || '').length < 10) throw bad('Name, email and a password of at least 10 characters are required');
-    if (!['admin', 'staff'].includes(role)) throw bad('Role must be admin or staff');
+    const b = req.body || {};
+    const name = String(b.name || '').trim();
+    const username = String(b.username || b.email || '').trim().toLowerCase();
+    let password = String(b.password || '');
+    const generated = !password;
+    if (generated) password = newPassword();
+    if (!name || !username) throw bad('Name and username are required');
+    if (!/^[a-z0-9._@-]{3,60}$/.test(username)) throw bad('Username: 3–60 characters, letters, numbers, dot, dash, underscore or @ (no spaces)');
+    if (password.length < 10) throw bad('Password must be at least 10 characters, or leave it blank to create one');
+    if (!['admin', 'staff'].includes(b.role)) throw bad('Role must be admin or staff');
     try {
-      const r = q.run('INSERT INTO users (name, email, password_hash, role) VALUES (?,?,?,?)', String(name).trim(), String(email).trim().toLowerCase(), hashPassword(password), role);
-      audit('user', Number(r.lastInsertRowid), 'create', { email, role }, actorName(req));
-      res.status(201).json({ id: Number(r.lastInsertRowid) });
+      const r = q.run('INSERT INTO users (name, email, password_hash, role) VALUES (?,?,?,?)', name, username, hashPassword(password), b.role);
+      audit('user', Number(r.lastInsertRowid), 'create', { username, role: b.role }, actorName(req));
+      res.status(201).json({ id: Number(r.lastInsertRowid), username, password: generated ? password : undefined });
     } catch (e) {
-      if (/UNIQUE/.test(e.message)) throw bad('A user with that email already exists');
+      if (/UNIQUE/.test(e.message)) throw bad('That username is already taken');
       throw e;
     }
+  });
+  app.post('/api/users/:id/reset-password', requireAdmin, (req, res) => {
+    const u = q.get('SELECT * FROM users WHERE id = ? AND removed_at IS NULL', Number(req.params.id));
+    if (!u) throw new HttpError(404, 'User not found');
+    const password = newPassword();
+    q.run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(password), u.id);
+    if (u.id !== req.user.id) q.run('DELETE FROM sessions WHERE user_id = ?', u.id);
+    audit('user', u.id, 'password_reset', null, actorName(req));
+    res.json({ username: u.email, password });
   });
   app.put('/api/users/:id', requireAdmin, (req, res) => {
     const u = q.get('SELECT * FROM users WHERE id = ? AND removed_at IS NULL', Number(req.params.id));

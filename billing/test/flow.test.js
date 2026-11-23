@@ -31,7 +31,7 @@ before(async () => {
   const app = createApp({ db, sheets: localAdapter(sheetsFile), log: (e) => console.error(e) });
   await new Promise((r) => { server = app.listen(0, '127.0.0.1', r); });
   base = `http://127.0.0.1:${server.address().port}`;
-  const login = await req('POST', '/api/login', { email: 'admin@example.com', password: 'test-password-123' });
+  const login = await req('POST', '/api/login', { username: 'admin@example.com', password: 'test-password-123' });
   assert.equal(login.status, 200);
   cookie = login.res.headers.get('set-cookie').split(';')[0];
   const t = await req('POST', '/api/tokens', { name: 'TEST-PC' });

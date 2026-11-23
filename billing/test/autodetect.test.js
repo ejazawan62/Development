@@ -125,3 +125,21 @@ test('remove a user: access ends, name stays, email can be reused', async () => 
   assert.equal(login.status, 401);
   assert.equal((await call('POST', '/api/users', { name: 'Temp Again', email: 'temp@example.com', password: 'temp-password-2', role: 'staff' })).status, 201);
 });
+
+test('usernames and admin password reset', async () => {
+  const add = await call('POST', '/api/users', { name: 'Nabeel', username: 'Nabeel', password: '', role: 'staff' });
+  assert.equal(add.status, 201, JSON.stringify(add.data));
+  assert.equal(add.data.username, 'nabeel');
+  assert.match(add.data.password, /^[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}$/);
+  let login = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'NABEEL', password: add.data.password }) });
+  assert.equal(login.status, 200);
+  assert.equal((await call('POST', '/api/users', { name: 'X', username: 'has space', role: 'staff' })).status, 422);
+  const reset = await call('POST', `/api/users/${add.data.id}/reset-password`);
+  assert.equal(reset.status, 200);
+  login = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'nabeel', password: add.data.password }) });
+  assert.equal(login.status, 401, 'old password stops working');
+  login = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'nabeel', password: reset.data.password }) });
+  assert.equal(login.status, 200);
+  const list = (await call('GET', '/api/users')).data;
+  assert.ok(list.every((u) => !('password' in u) && !('password_hash' in u)), 'passwords are never listed');
+});

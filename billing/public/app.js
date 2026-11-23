@@ -163,16 +163,16 @@ function changePassword() {
 
 // ---------- views ----------
 function viewLogin(err) {
-  const email = h('input', { type: 'email', autocomplete: 'username', required: true });
+  const email = h('input', { type: 'text', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', required: true });
   const pass = h('input', { type: 'password', autocomplete: 'current-password', required: true });
   const msg = h('div');
   const form = h('form', { class: 'card login', onsubmit: async (ev) => {
     ev.preventDefault();
-    try { await api('POST', '/api/login', { email: email.value, password: pass.value }); ME = await api('GET', '/api/me'); render(); } catch (e) { msg.replaceChildren(errorBox(e)); }
+    try { await api('POST', '/api/login', { username: email.value, password: pass.value }); ME = await api('GET', '/api/me'); render(); } catch (e) { msg.replaceChildren(errorBox(e)); }
   } },
   h('div', { class: 'logo' }, h('img', { src: logoSrc(true), alt: `${BRAND.company} logo` })),
   h('h1', {}, 'Billing Control'), h('div', { class: 'sub' }, 'Demos, claims and submissions'),
-  h('label', {}, 'Email', email), h('label', {}, 'Password', pass), msg, h('button', { class: 'primary', type: 'submit' }, 'Sign in'));
+  h('label', {}, 'Username', email), h('label', {}, 'Password', pass), msg, h('button', { class: 'primary', type: 'submit' }, 'Sign in'));
   if (err) msg.append(errorBox(err));
   $app.replaceChildren(h('div', { class: 'login-page' }, form));
 }
@@ -658,10 +658,18 @@ function portalsCard(portals, practices, msg) {
         } }, 'Add')))))));
 }
 
-async function viewAdmin() {
+async function viewAdmin(flash) {
   const [users, tokens, gs, portals, practices] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets'), api('GET', '/api/portals'), api('GET', '/api/practices')]);
   const msg = h('div');
-  const nu = { name: h('input'), email: h('input', { type: 'email' }), password: h('input', { type: 'password', autocomplete: 'new-password' }), role: h('select', {}, h('option', { value: 'staff' }, 'staff'), h('option', { value: 'admin' }, 'admin')) };
+  const nu = { name: h('input'), username: h('input', { autocapitalize: 'none', spellcheck: 'false', placeholder: 'e.g. nabeel' }), password: h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Blank = create one for me' }), role: h('select', {}, h('option', { value: 'staff' }, 'staff'), h('option', { value: 'admin' }, 'admin')) };
+  const userMsg = h('div');
+  const showPassword = (who, username, password) => {
+    userMsg.replaceChildren(h('div', { class: 'success' },
+      h('div', {}, `Password for ${who} (username `, h('span', { class: 'typed' }, username), '):'),
+      h('div', { class: 'row' }, h('span', { class: 'typed' }, password), copyBtn(password)),
+      h('div', { class: 'muted' }, 'Shown only this once. Give it to them privately (not in a group chat). They can change it with "Change password" after signing in.')));
+    userMsg.scrollIntoView({ block: 'center' });
+  };
   const tokName = h('input', { placeholder: 'e.g. OFFICE-VM-01' });
   shell('admin', h('h1', {}, 'Settings, users & bot access'), msg, sheetsCard(gs, msg), brandingCard(msg), portalsCard(portals, practices, msg),
     h('section', { class: 'card' }, h('h2', {}, 'Bot tokens'),
@@ -674,18 +682,26 @@ async function viewAdmin() {
       } }, 'Create token')),
       h('table', {}, h('tbody', {}, tokens.map((t) => h('tr', { class: t.revoked ? 'dim' : '' }, h('td', {}, t.name), h('td', { class: 'muted' }, `created ${t.created_at} · last used ${t.last_used_at || 'never'}`),
         h('td', {}, t.revoked ? 'revoked' : h('button', { type: 'button', class: 'small', onclick: async () => { if (confirm(`Revoke ${t.name}?`)) { await api('POST', `/api/tokens/${t.id}/revoke`); viewAdmin(); } } }, 'Revoke'))))))),
-    h('section', { class: 'card' }, h('h2', {}, 'Users'),
-      h('table', {}, h('tbody', {}, users.map((u) => h('tr', { class: u.active ? '' : 'dim' }, h('td', {}, u.name), h('td', {}, u.email), h('td', {}, u.role),
+    h('section', { class: 'card' }, h('h2', {}, 'Users'), userMsg,
+      h('table', {}, h('thead', {}, h('tr', {}, ['Name', 'Username', 'Role', ''].map((x) => h('th', {}, x)))),
+        h('tbody', {}, users.map((u) => h('tr', { class: u.active ? '' : 'dim' }, h('td', {}, u.name), h('td', { class: 'mono' }, u.email), h('td', {}, u.role),
         h('td', {}, u.id === ME.id ? '(you)' : [h('button', { type: 'button', class: 'small', onclick: async () => { await api('PUT', `/api/users/${u.id}`, { active: !u.active }); viewAdmin(); } }, u.active ? 'Deactivate' : 'Reactivate'), ' ',
           h('button', { type: 'button', class: 'small', onclick: async () => {
             if (!confirm(`Remove ${u.name} (${u.email})?\n\nThey lose access right away and disappear from this list. Their name stays on work they already did. To give access again later, add them as a new user.`)) return;
             try { await api('DELETE', `/api/users/${u.id}`); viewAdmin(); } catch (e) { msg.replaceChildren(errorBox(e)); msg.scrollIntoView(); }
           } }, 'Remove')],
-          ' ', h('button', { type: 'button', class: 'small', onclick: async () => { const p = prompt(`New password for ${u.email} (10+ characters)`); if (p) { try { await api('PUT', `/api/users/${u.id}`, { password: p }); msg.replaceChildren(h('div', { class: 'success' }, 'Password changed.')); } catch (e) { msg.replaceChildren(errorBox(e)); } } } }, 'Set password')))))),
-      h('div', { class: 'grid' }, h('label', {}, 'Name', nu.name), h('label', {}, 'Email', nu.email), h('label', {}, 'Password (10+)', nu.password), h('label', {}, 'Role', nu.role)),
-      h('button', { type: 'button', onclick: async () => {
-        try { await api('POST', '/api/users', Object.fromEntries(Object.entries(nu).map(([k, el]) => [k, el.value]))); viewAdmin(); } catch (e) { msg.replaceChildren(errorBox(e)); }
+          u.id === ME.id ? null : [' ', h('button', { type: 'button', class: 'small', onclick: async () => {
+            if (!confirm(`Reset the password for ${u.name}? Their old password stops working and they are signed out.`)) return;
+            try { const r = await api('POST', `/api/users/${u.id}/reset-password`); showPassword(u.name, r.username, r.password); } catch (e) { msg.replaceChildren(errorBox(e)); }
+          } }, 'Reset password')]))))),
+      h('div', { class: 'grid' }, h('label', {}, 'Name', nu.name), h('label', {}, 'Username', nu.username), h('label', {}, 'Password (10+, or blank)', nu.password), h('label', {}, 'Role', nu.role)),
+      h('button', { type: 'button', class: 'primary', onclick: async () => {
+        try {
+          const r = await api('POST', '/api/users', Object.fromEntries(Object.entries(nu).map(([k, el]) => [k, el.value])));
+          await viewAdmin(r.password ? { who: nu.name.value, username: r.username, password: r.password } : null);
+        } catch (e) { msg.replaceChildren(errorBox(e)); }
       } }, 'Add user')));
+  if (flash) showPassword(flash.who, flash.username, flash.password);
 }
 
 // ---------- router ----------
