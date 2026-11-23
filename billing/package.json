@@ -7,12 +7,12 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server.js",
     "seed:demo": "node --disable-warning=ExperimentalWarning lib/seed-demo.js",
-    "test": "node --disable-warning=ExperimentalWarning --test test/"
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
   },
   "engines": {
     "node": ">=22.5"
   },
   "dependencies": {
-    "express": "4.22.1"
+    "express": "4.21.2"
   }
 }

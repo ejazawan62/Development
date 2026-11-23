@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin','biller')),
+  role TEXT NOT NULL CHECK (role IN ('admin','staff')),
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -19,93 +19,107 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_id INTEGER NOT NULL REFERENCES users(id),
   expires_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS settings (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT,
+  revoked INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS practices (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS payers (
   id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
+  practice_id INTEGER NOT NULL REFERENCES practices(id),
+  aliases TEXT NOT NULL DEFAULT '[]',
+  oa_payer_name TEXT NOT NULL,
   payer_id TEXT NOT NULL,
-  filing_code TEXT NOT NULL DEFAULT 'CI',
-  address1 TEXT, city TEXT, state TEXT, zip TEXT,
-  active INTEGER NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS providers (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  npi TEXT NOT NULL,
-  tax_id TEXT NOT NULL,
-  taxonomy TEXT,
-  address1 TEXT NOT NULL, city TEXT NOT NULL, state TEXT NOT NULL, zip TEXT NOT NULL,
-  phone TEXT,
-  active INTEGER NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS patients (
-  id INTEGER PRIMARY KEY,
-  account_no TEXT NOT NULL UNIQUE,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  middle_initial TEXT,
-  dob TEXT NOT NULL,
-  sex TEXT NOT NULL CHECK (sex IN ('M','F','U')),
-  address1 TEXT, address2 TEXT, city TEXT, state TEXT, zip TEXT,
-  phone TEXT, email TEXT,
-  primary_payer_id INTEGER REFERENCES payers(id),
-  member_id TEXT, group_no TEXT,
-  subscriber_rel TEXT NOT NULL DEFAULT 'self' CHECK (subscriber_rel IN ('self','spouse','child','other')),
-  subscriber_first TEXT, subscriber_last TEXT, subscriber_dob TEXT, subscriber_sex TEXT,
-  secondary_payer_id INTEGER REFERENCES payers(id),
-  secondary_member_id TEXT,
-  notes TEXT,
-  created_by INTEGER REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  plan_type TEXT NOT NULL CHECK (plan_type IN ('medicare','advantage','medicaid','medicaid_mco','commercial','other')),
+  portal TEXT NOT NULL DEFAULT '',
+  sheet_name TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  updated_by INTEGER REFERENCES users(id),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE TABLE IF NOT EXISTS batches (
+CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY,
-  batch_no TEXT NOT NULL UNIQUE,
-  control_no INTEGER NOT NULL,
-  claim_count INTEGER NOT NULL,
-  total_cents INTEGER NOT NULL,
-  file_content TEXT NOT NULL,
+  task_type TEXT NOT NULL CHECK (task_type IN ('demo','claim','submission')),
+  practice_id INTEGER REFERENCES practices(id),
+  practice_name TEXT NOT NULL DEFAULT '',
+  provider_name TEXT NOT NULL DEFAULT '',
+  provider_npi TEXT NOT NULL DEFAULT '',
+  billing_npi TEXT NOT NULL DEFAULT '',
+  billing_tax_id TEXT NOT NULL DEFAULT '',
+  facilities TEXT NOT NULL DEFAULT '[]',
+  oa_account TEXT NOT NULL DEFAULT '',
+  sheet_link TEXT NOT NULL DEFAULT '',
+  spreadsheet_id TEXT NOT NULL DEFAULT '',
+  tab_name TEXT NOT NULL DEFAULT '',
+  status_col TEXT NOT NULL DEFAULT '',
+  insurance_col TEXT NOT NULL DEFAULT '',
+  notes_col TEXT NOT NULL DEFAULT '',
+  row_from INTEGER,
+  row_to INTEGER,
+  dos_from TEXT NOT NULL DEFAULT '',
+  dos_to TEXT NOT NULL DEFAULT '',
+  portals TEXT NOT NULL DEFAULT '[]',
+  special_instructions TEXT NOT NULL DEFAULT '',
+  extra_drug_codes TEXT NOT NULL DEFAULT '',
+  header TEXT NOT NULL DEFAULT '[]',
+  header_checked_at TEXT,
+  mapping TEXT NOT NULL DEFAULT '{}',
+  state TEXT NOT NULL DEFAULT 'setup' CHECK (state IN ('setup','confirmed','closed')),
+  confirmed_by INTEGER REFERENCES users(id),
+  confirmed_at TEXT,
+  current_row INTEGER,
+  current_row_started_at TEXT,
+  bot_paused INTEGER NOT NULL DEFAULT 0,
+  bot_last_seen TEXT,
+  rows_loaded_at TEXT,
+  copied_from INTEGER,
   created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  closed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS task_rows (
+  task_id INTEGER NOT NULL REFERENCES tasks(id),
+  row_no INTEGER NOT NULL,
+  cells TEXT NOT NULL,
+  PRIMARY KEY (task_id, row_no)
+);
+CREATE TABLE IF NOT EXISTS records (
+  id INTEGER PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES tasks(id),
+  row_no INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  status_text TEXT NOT NULL,
+  insurance TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  checklist TEXT NOT NULL DEFAULT '[]',
+  actor TEXT NOT NULL CHECK (actor IN ('bot','user')),
+  user_id INTEGER REFERENCES users(id),
+  token_id INTEGER REFERENCES api_tokens(id),
+  started_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE TABLE IF NOT EXISTS claims (
+CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY,
-  claim_no TEXT NOT NULL UNIQUE,
-  patient_id INTEGER NOT NULL REFERENCES patients(id),
-  payer_id INTEGER REFERENCES payers(id),
-  payer_rank TEXT NOT NULL DEFAULT 'primary' CHECK (payer_rank IN ('primary','secondary')),
-  provider_id INTEGER REFERENCES providers(id),
-  status TEXT NOT NULL DEFAULT 'draft'
-    CHECK (status IN ('draft','ready','submitted','accepted','rejected','paid','denied')),
-  pos TEXT NOT NULL DEFAULT '11',
-  diagnoses TEXT NOT NULL DEFAULT '[]',
-  prior_auth TEXT,
-  notes TEXT,
-  total_cents INTEGER NOT NULL DEFAULT 0,
-  batch_id INTEGER REFERENCES batches(id),
-  submitted_at TEXT,
-  payer_claim_no TEXT,
-  paid_cents INTEGER,
-  response_note TEXT,
-  created_by INTEGER REFERENCES users(id),
+  task_id INTEGER NOT NULL REFERENCES tasks(id),
+  kind TEXT NOT NULL CHECK (kind IN ('repeat_issue','otp','login_failed','question','error')),
+  message TEXT NOT NULL,
+  issue_key TEXT,
+  row_no INTEGER,
+  resolved INTEGER NOT NULL DEFAULT 0,
+  resolution TEXT,
+  resolved_by INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS claim_lines (
-  id INTEGER PRIMARY KEY,
-  claim_id INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
-  line_no INTEGER NOT NULL,
-  dos_from TEXT NOT NULL,
-  dos_to TEXT NOT NULL,
-  cpt TEXT NOT NULL,
-  modifiers TEXT NOT NULL DEFAULT '',
-  units REAL NOT NULL DEFAULT 1,
-  charge_cents INTEGER NOT NULL,
-  dx_pointers TEXT NOT NULL DEFAULT '1'
+  resolved_at TEXT
 );
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY,
@@ -113,26 +127,13 @@ CREATE TABLE IF NOT EXISTS audit (
   entity_id INTEGER NOT NULL,
   action TEXT NOT NULL,
   detail TEXT,
-  user_id INTEGER REFERENCES users(id),
+  actor TEXT,
   at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status);
-CREATE INDEX IF NOT EXISTS idx_claims_patient ON claims(patient_id);
-CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit(entity, entity_id);
+CREATE INDEX IF NOT EXISTS idx_records_task ON records(task_id, row_no);
+CREATE INDEX IF NOT EXISTS idx_alerts_task ON alerts(task_id, resolved);
+CREATE INDEX IF NOT EXISTS idx_payers_practice ON payers(practice_id);
 `;
-
-const DEFAULT_SETTINGS = {
-  practice_name: 'DPIS Medical Billing',
-  submitter_id: 'SUBMITTER01',
-  submitter_contact: 'Billing Office',
-  submitter_phone: '0000000000',
-  receiver_name: 'CLEARINGHOUSE',
-  receiver_id: 'RECEIVER01',
-  usage_indicator: 'T',
-  next_control_no: '1',
-  next_claim_seq: '1',
-  next_account_seq: '1',
-};
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -144,17 +145,17 @@ function verifyPassword(password, stored) {
   const [scheme, saltHex, hashHex] = String(stored).split('$');
   if (scheme !== 'scrypt' || !saltHex || !hashHex) return false;
   const expected = Buffer.from(hashHex, 'hex');
-  const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
+  const actual = crypto.scryptSync(String(password), Buffer.from(saltHex, 'hex'), expected.length);
   return crypto.timingSafeEqual(actual, expected);
 }
+
+function sha256(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
 
 function open(file) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
-  const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-  for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) insertSetting.run(k, v);
   return db;
 }
 
@@ -171,19 +172,4 @@ function tx(db, fn) {
   }
 }
 
-function getSettings(db) {
-  const out = {};
-  for (const row of db.prepare('SELECT key, value FROM settings').all()) out[row.key] = row.value;
-  return out;
-}
-
-/** Atomically reads and increments a numeric counter kept in settings. Call inside tx(). */
-function nextSeq(db, key) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  const n = Number(row ? row.value : 1);
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    .run(key, String(n + 1));
-  return n;
-}
-
-module.exports = { open, tx, hashPassword, verifyPassword, getSettings, nextSeq };
+module.exports = { open, tx, hashPassword, verifyPassword, sha256 };

@@ -1,5 +1,7 @@
 # DPIS website
 
+> The medical billing system (Billing Control + Data Entry Bot) is in [`billing/`](billing/README.md).
+
 Static website for DPIS, an internet service provider in Pakistan. Plain HTML, CSS and JavaScript, with no build step.
 
 ## Files

@@ -1,0 +1,124 @@
+# Billing Control + Data Entry Bot
+
+Medical billing data entry for demos (patient demographics), claim creation and claim submission in
+Office Ally, following the team SOP in [`bot/data-entry/reference/sop.md`](bot/data-entry/reference/sop.md).
+
+There are two parts:
+
+| Part | What it does |
+| --- | --- |
+| **Billing Control** (web app, `server.js`) | Task Setup form, sheet header check, worklist, per-row checks, demo entry cards, payer lists, alerts, end-of-session reports. Reads and writes the Google Sheet. |
+| **Data Entry Bot** (Claude skill, `bot/data-entry/`) | Claude in the desktop app, driving Chrome on the office PC: Office Ally, Medicare/Medicaid/UHC/Availity portals. Gets each row from Billing Control and records the outcome through it. |
+
+What Billing Control enforces (so neither the bot nor a person can skip it):
+
+- A task can't start until every Task Setup field is filled, NPIs pass the check digit, the sheet's header row
+  matches the Status / Insurance / Notes columns, and a person ticks **Confirm**.
+- One patient at a time: the bot must finish its current row before it gets the next.
+- Claims with a different provider, a facility address that doesn't match, a drug line without an NDC,
+  codes/units that don't line up, or a bad DOS/ICD-10 **cannot** be recorded as Claim Created / Submitted.
+  Only "Held" with a reason.
+- Every outcome needs its checklist (searched first, eligibility on DOS, Box 32 checked, saved in Patient Visits only…).
+- Only the primary insurance goes in the Insurance column, using the payer list's name. Notes use the standard wording.
+  Anything that looks like a password is refused.
+- Before writing a row, the app re-reads it and checks the patient name and DOB, so a re-sorted sheet can't
+  get the wrong status. Notes are added after the team's existing notes, never over them.
+- The same held reason on 3 rows pauses the bot until a person looks.
+
+## Run it on the office PC / VM
+
+Needs Node.js 22.5 or newer.
+
+```bash
+git clone <this repo> && cd <repo>/billing
+```
+
+```bash
+npm install
+```
+
+```bash
+npm start
+```
+
+The first start creates an admin account and prints its password once. Open http://127.0.0.1:3000,
+sign in and change the password (Users & bot access → Set password). Set `ADMIN_EMAIL` /
+`ADMIN_PASSWORD` before the first start to choose them yourself.
+
+Settings (environment variables):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the app listens. Keep `127.0.0.1` unless other office PCs need it (then put it behind HTTPS) |
+| `DATA_DIR` | `billing/data` | Database (`billing.db`). Back this folder up |
+| `GOOGLE_SERVICE_ACCOUNT_FILE` | not set | Path to the Google service account key. **Not set = test mode with local fake sheets** |
+
+### Connect Google Sheets
+
+1. In Google Cloud Console: create a project, enable the **Google Sheets API**, create a **service account**
+   and download its JSON key. Keep the key file on the office PC only (never in the repo or chat).
+2. Start the app with `GOOGLE_SERVICE_ACCOUNT_FILE=/path/to/key.json npm start`.
+3. Share each billing sheet with the service account's email (shown on the Task Setup page) as **Editor**.
+
+### Try it with fake data first
+
+```bash
+npm run seed:demo
+```
+
+```bash
+npm start
+```
+
+Sign in as `admin@example.com` / `demo-admin-pass`. Two DEMO tasks are ready: open each, click
+**Check sheet header**, tick the confirmation and confirm. The fake sheet is `data/local-sheets.json`.
+
+## Set up the bot PC
+
+On the PC or VM the bot uses (it can be the same machine):
+
+1. Install the Claude desktop app and Claude in Chrome. Save the Office Ally and portal logins in Chrome's
+   password manager, so nobody has to type passwords into the chat.
+2. In Billing Control → **Users & bot access**, create a bot token (shown once).
+3. Set these environment variables for the user the bot runs as:
+   - `BILLING_HOME`: the full path of this `billing` folder
+   - `BILLING_URL`: for example `http://127.0.0.1:3000`
+   - `BILLING_TOKEN`: the token from step 2
+4. Copy the skill folder `bot/data-entry` to `~/.claude/skills/data-entry` (Windows:
+   `%USERPROFILE%\.claude\skills\data-entry`).
+5. Check the connection:
+
+   ```bash
+   node "$BILLING_HOME/bin/bot.js" tasks
+   ```
+
+Then, in Claude: **"Start task 12"**. The bot shows the Task Setup, waits for your yes, and works row by row.
+It asks you in chat for one-time codes, and stops when a login fails twice or the app pauses the task.
+
+The bot token can only work confirmed tasks. It cannot edit Task Setups, payer lists or users.
+
+## Sheet layout
+
+The header check matches columns by name (you can change any match before confirming). For claims, one row is one
+claim; several codes in one cell are split on new lines, `;`, `|` or `,`, and units / modifiers / charges / pointers
+in their own columns must use the same separator so they line up (`99213; J1100` with units `1; 2`). NDCs can be
+`00641-0367-21 ML1`, or have their unit and quantity in separate columns. 10-digit NDCs are converted to 11 digits
+only when written with dashes; otherwise the row is held.
+
+## Patient data (HIPAA)
+
+- Keep Billing Control on the office PC/VM or your own server. It stores sheet rows for open tasks in `data/`.
+  Protect and back up that folder like any other patient data.
+- Google Sheets with patient data should be in a Google Workspace account covered by Google's BAA.
+- Before the bot handles real patients, check that your Claude plan is covered by a BAA with Anthropic.
+- Test only with fake data (`npm run seed:demo`). The seed refuses to run when Google Sheets is connected.
+
+## Development
+
+```bash
+npm test
+```
+
+Code map: `lib/checks.js` (claim and demo checks: NPI, MBI, NDC, addresses, providers), `lib/rules.js`
+(outcomes, checklists, notes, report), `lib/mapping.js` (header matching), `lib/sheets.js` (Google Sheets and
+local test sheets), `server.js` (API), `public/` (web app), `bin/bot.js` (bot CLI).
