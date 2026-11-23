@@ -180,7 +180,7 @@ function open(file) {
   db.exec(SCHEMA);
   // Columns added after the first release: add them to existing databases.
   const have = new Set(db.prepare('PRAGMA table_info(tasks)').all().map((c) => c.name));
-  for (const [col, type] of [['bot_name', 'TEXT'], ['bot_claimed_at', 'TEXT'], ['paused_by', 'TEXT']]) {
+  for (const [col, type] of [['bot_name', 'TEXT'], ['bot_claimed_at', 'TEXT'], ['paused_by', 'TEXT'], ['launch_bot', 'TEXT'], ['launched_at', 'TEXT']]) {
     if (!have.has(col)) db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
   }
   const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));

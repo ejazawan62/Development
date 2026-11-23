@@ -39,14 +39,15 @@ function windowsLauncher({ taskId, botName, billingHome, billingUrl }) {
     return { ok: false, message: 'Start bot opens a window on Windows only. On this computer, start the bot by pasting the message into Claude.' };
   }
   const command = buildBotCommand({ taskId, botName, billingHome, billingUrl });
-  // -EncodedCommand (UTF-16LE base64) means no shell ever re-parses quotes or special characters.
+  // -EncodedCommand (UTF-16LE base64) means no shell ever re-parses quotes or special characters:
+  // the command line below contains only letters, digits, spaces, '-', '+', '/', '=' and the quoted title.
   const encoded = Buffer.from(command, 'utf16le').toString('base64');
-  // detached on Windows gives the child its own new console window.
-  const child = spawn('powershell.exe', ['-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
-    cwd: billingHome, detached: true, stdio: 'ignore', windowsHide: false,
-  });
+  const title = `${botName} - Task ${taskId}`;
+  // Windows' "start" always opens a NEW visible console window. (A detached child gets no console at all.)
+  // shell: true runs: cmd.exe /d /s /c "start "<title>" powershell.exe ..."
+  const line = `start "${title}" powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+  const child = spawn(line, { cwd: billingHome, shell: true, windowsHide: true, stdio: 'ignore' });
   child.on('error', () => {});
-  child.unref();
   return { ok: true, message: `${botName} is starting in a new window on this PC.` };
 }
 

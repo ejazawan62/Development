@@ -143,3 +143,33 @@ test('usernames and admin password reset', async () => {
   const list = (await call('GET', '/api/users')).data;
   assert.ok(list.every((u) => !('password' in u) && !('password_hash' in u)), 'passwords are never listed');
 });
+
+test('Start bot: a second click while the first bot is starting is refused', async () => {
+  const { createApp } = require('../server');
+  const { open, hashPassword } = require('../lib/db');
+  const { localAdapter } = require('../lib/sheets');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'billing-launch-'));
+  const f = path.join(d, 's.json');
+  fs.writeFileSync(f, fs.readFileSync(file));
+  const db2 = open(path.join(d, 'b.db'));
+  db2.prepare('INSERT INTO users (name, email, password_hash, role) VALUES (?,?,?,?)').run('A', 'a@example.com', hashPassword('test-password-123'), 'admin');
+  const launched = [];
+  const app2 = createApp({ db: db2, sheets: localAdapter(f), launcher: (o) => { launched.push(o.botName); return { ok: true, message: 'started' }; } });
+  const srv = await new Promise((r) => { const s = app2.listen(0, '127.0.0.1', () => r(s)); });
+  const b2 = `http://127.0.0.1:${srv.address().port}`;
+  const lr = await fetch(b2 + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'a@example.com', password: 'test-password-123' }) });
+  const ck = lr.headers.get('set-cookie').split(';')[0];
+  const c2 = async (m, p, body) => { const r = await fetch(b2 + p, { method: m, headers: { cookie: ck, 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, data: await r.json() }; };
+  const t = await c2('POST', '/api/tasks', { task_type: 'demo' });
+  await c2('PUT', `/api/tasks/${t.data.id}`, { practice_name: 'P', oa_account: 'OA', sheet_link: `https://docs.google.com/spreadsheets/d/${ID}/edit`, portals: ['Office Ally'] });
+  await c2('POST', `/api/tasks/${t.data.id}/check-sheet`);
+  assert.equal((await c2('POST', `/api/tasks/${t.data.id}/confirm`)).status, 200);
+  const first = await c2('POST', `/api/tasks/${t.data.id}/start-bot`);
+  assert.equal(first.status, 200);
+  assert.equal(first.data.bot, 'Bot 1');
+  const second = await c2('POST', `/api/tasks/${t.data.id}/start-bot`);
+  assert.equal(second.status, 422);
+  assert.match(second.data.error, /was started for this task a moment ago/);
+  assert.deepEqual(launched, ['Bot 1']);
+  srv.close(); fs.rmSync(d, { recursive: true, force: true });
+});

@@ -488,7 +488,8 @@ async function viewWorklist(id, filter = 'all') {
     (!t.bot && t.state === 'confirmed' && inScope.some((r) => !r.record)) ? (() => {
       const prompt = `You are Bot 1. Use the data-entry skill and start task ${t.id}.`;
       const out = h('div');
-      const btn = h('button', { type: 'button', class: 'primary', disabled: !!t.bot_paused, onclick: async () => {
+      const starting = t.launch_bot && t.launched_at && Date.now() - Date.parse(t.launched_at.replace(' ', 'T') + 'Z') < 5 * 60000;
+      const btn = h('button', { type: 'button', class: 'primary', disabled: !!t.bot_paused || starting, onclick: async () => {
         if (!confirm('Start a bot on this task?\n\nA Claude window opens on the PC that runs Billing Control. Make sure Chrome there is signed in to Office Ally and the portals. The bot will show the Task Setup in that window and wait for a "yes".')) return;
         btn.disabled = true; btn.textContent = 'Starting…';
         try {
@@ -499,7 +500,15 @@ async function viewWorklist(id, filter = 'all') {
           btn.disabled = false; btn.textContent = 'Start bot';
           out.replaceChildren(errorBox(e), e.data && e.data.prompt ? h('div', { class: 'row' }, 'Start it by hand instead: ', h('span', { class: 'typed' }, e.data.prompt), copyBtn(e.data.prompt)) : null);
         }
-      } }, 'Start bot');
+      } }, starting ? `${t.launch_bot} starting…` : 'Start bot');
+      if (starting) {
+        out.append(h('div', { class: 'success' }, `${t.launch_bot} was started ${t.launched_at.slice(11, 16)} UTC. Find its window ("${t.launch_bot} - Task ${t.id}") on the Billing Control PC and answer it there. This box disappears once it begins.`),
+          h('button', { type: 'button', class: 'link', onclick: async () => {
+            if (!confirm('Only do this if no bot window appeared (check the taskbar first). Start the bot again?')) return;
+            try { const r = await api('POST', `/api/tasks/${id}/start-bot`, { retry: true }); out.replaceChildren(h('div', { class: 'success' }, r.message)); setTimeout(() => viewWorklist(id, filter), 4000); }
+            catch (e) { out.replaceChildren(errorBox(e)); }
+          } }, 'No window appeared? Try again'));
+      }
       return h('section', { class: 'card focus' }, h('div', { class: 'row' }, h('h2', {}, 'Start a bot on this task'), h('div', { class: 'end' }, btn)),
         h('div', { class: 'muted' }, 'Opens Claude in a new window on the PC running Billing Control, already pointed at this task. It picks the next free bot name (Bot 1, Bot 2…).'),
         out,

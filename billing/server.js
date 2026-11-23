@@ -15,6 +15,7 @@ const SESSION_HOURS = 10;
 const REPEAT_LIMIT = 3;
 const MAX_ROWS = 3000;
 const BOT_STALE_MINUTES = 20;
+const LAUNCH_LOCK_MINUTES = 5;
 const SETUP_FIELDS = ['task_type', 'practice_name', 'provider_name', 'provider_npi', 'billing_npi', 'billing_tax_id', 'facilities',
   'oa_account', 'sheet_link', 'tab_name', 'status_col', 'insurance_col', 'notes_col', 'row_from', 'row_to', 'dos_from', 'dos_to',
   'portals', 'special_instructions', 'extra_drug_codes'];
@@ -515,11 +516,22 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     if (t.state !== 'confirmed') throw bad('Confirm the Task Setup first.');
     if (t.bot_paused) throw bad('This task is paused. Resolve or resume it first.');
     if (t.bot_name && isLive(t)) throw bad(`${t.bot_name.split('/').pop()} is already working this task.`);
-    const busy = new Set(q.all("SELECT * FROM tasks WHERE state = 'confirmed' AND bot_name IS NOT NULL").map(hydrate).filter(isLive).map((x) => x.bot_name.split('/').pop()));
+    // A bot that was started but hasn't begun yet (waiting for its "yes") still counts, so a second click
+    // can't open a duplicate window. The lock lasts LAUNCH_LOCK_MINUTES.
+    const recentLaunch = (x) => x.launch_bot && x.launched_at && Date.now() - Date.parse(x.launched_at.replace(' ', 'T') + 'Z') < LAUNCH_LOCK_MINUTES * 60000;
+    if (recentLaunch(t) && !(t.bot_name && isLive(t)) && !(req.body && req.body.retry)) {
+      throw bad(`${t.launch_bot} was started for this task a moment ago. Look for its window ("${t.launch_bot} - Task ${t.id}") and answer it there. If that window is gone, wait ${LAUNCH_LOCK_MINUTES} minutes and try again.`);
+    }
+    const all = q.all("SELECT * FROM tasks WHERE state = 'confirmed'").map(hydrate);
+    const busy = new Set([
+      ...all.filter((x) => x.bot_name && isLive(x)).map((x) => x.bot_name.split('/').pop()),
+      ...all.filter((x) => recentLaunch(x) && !(x.id === t.id && req.body && req.body.retry)).map((x) => x.launch_bot),
+    ]);
     let n = 1;
     while (busy.has(`Bot ${n}`)) n++;
     const botName = `Bot ${n}`;
     const r = launcher({ taskId: t.id, botName, billingHome: __dirname, billingUrl: `http://127.0.0.1:${publicPort}` });
+    if (r.ok) q.run("UPDATE tasks SET launch_bot = ?, launched_at = datetime('now') WHERE id = ?", botName, t.id);
     audit('task', t.id, 'start_bot', { bot: botName, ok: r.ok }, actorName(req));
     if (r.ok) postMessage(t.id, 'system', req.user.name, `${req.user.name} started ${botName}. It will show the Task Setup in its window and wait for a "yes".`, 'start');
     res.status(r.ok ? 200 : 501).json({ ...r, bot: botName, prompt: `You are ${botName}. Use the data-entry skill and start task ${t.id}.` });
