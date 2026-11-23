@@ -27,8 +27,8 @@ const CHECKLISTS = {
   claim: {
     demo_exists: 'Demo exists in Office Ally (searched by name, confirmed DOB)',
     insurance_active_on_dos: 'Primary insurance from the demo is correct and active on the DOS',
-    providers_from_task_setup: 'Billing and rendering provider are the Task Setup ones (NPI, Tax ID)',
-    facility_box32_matches: 'Box 32 service facility name and address exactly match the sheet',
+    providers_from_task_setup: 'Rendering and billing provider: the Task Setup provider if one is given, otherwise the Office Ally provider matching the sheet',
+    facility_box32_matches: 'Box 32: the Office Ally location whose address exactly matches the sheet (new locations added first)',
     line_review_done: 'Re-read line by line: patient, DOS, codes, units, modifiers, pointers, charges, NDCs',
     saved_in_patient_visits_only: 'Saved in Patient Visits only; not sent from Claims/Billing, not in Claims Awaiting Batch',
   },
@@ -143,7 +143,7 @@ function buildReport(task, records, alerts, inScopeRows) {
 
 function reportText(r) {
   const lines = [
-    `Task #${r.task.id} · ${r.task.type} · ${r.task.practice} · ${r.task.provider} (NPI ${r.task.provider_npi})`,
+    `Task #${r.task.id} · ${r.task.type} · ${r.task.practice} · ${r.task.provider ? `${r.task.provider} (NPI ${r.task.provider_npi})` : 'provider from Office Ally'}`,
     `Tab: ${r.task.sheet} · rows ${r.task.rows}`,
   ];
   if (r.task.type === 'demo') lines.push(`Demos: ${r.demos.demo_done} Demo Done · ${r.demos.already_added} Already demo added · ${r.demos.not_eligible} not eligible · ${r.held} held`);

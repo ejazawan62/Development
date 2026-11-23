@@ -149,15 +149,13 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
   function setupProblems(t) {
     const p = [];
     const need = (v, label) => { if (v == null || String(v).trim() === '') p.push(`${label} is blank`); };
-    need(t.task_type, 'Task type'); need(t.practice_name, 'Practice name'); need(t.provider_name, 'Provider name');
+    need(t.task_type, 'Task type'); need(t.practice_name, 'Practice name');
     need(t.oa_account, 'Office Ally account / practice'); need(t.sheet_link, 'Google Sheet link');
-    if (!checks.isValidNpi(t.provider_npi)) p.push('Provider NPI is missing or fails the NPI check digit');
+    if (t.provider_npi && !checks.isValidNpi(t.provider_npi)) p.push('Provider NPI fails the NPI check digit (or leave it blank to use Office Ally\'s provider)');
+    if (t.provider_npi && !t.provider_name) p.push('Add the provider name for this NPI (or leave both blank)');
     if (t.billing_npi && !checks.isValidNpi(t.billing_npi)) p.push('Billing/group NPI fails the NPI check digit');
     if (t.billing_tax_id && !/^\d{2}-?\d{7}$/.test(t.billing_tax_id)) p.push('Billing Tax ID must be 9 digits');
-    if (t.task_type !== 'demo') {
-      if (!t.facilities.length) p.push('Add at least one facility (name and address)');
-      t.facilities.forEach((f, i) => { if (!f.name || !f.address) p.push(`Facility ${i + 1} needs both a name and an address`); });
-    }
+    t.facilities.forEach((f, i) => { if (!f.name || !f.address) p.push(`New location ${i + 1} needs both a name and an address`); });
     if (!spreadsheetIdFromLink(t.sheet_link)) p.push('Google Sheet link is not a valid sheet link');
     if (t.row_from != null && !(t.row_from >= 2)) p.push('Rows to work: "from" must be 2 or more (or blank for row 2)');
     if (t.row_to != null && !(t.row_to >= (t.row_from || 2))) p.push('Rows to work: "to" can\'t be before "from" (or leave it blank for the last row)');

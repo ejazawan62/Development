@@ -4,7 +4,13 @@ Nov 23, 2026 · @AWAN
 
 > Billing Control note: where this SOP says to update the Google Sheet, the bot does it with
 > `bot record …`, which writes the Status, Insurance and Notes cells through the Google Sheets
-> connection. Everything else in this SOP applies as written.
+> connection.
+>
+> Update (Nov 23, 2026, @AWAN): provider and facility details no longer have to be in the Task Setup.
+> When the Task Setup has no provider, use the Office Ally provider that matches the sheet row (no match →
+> "Held — provider not in Office Ally"). For Box 32, use the Office Ally location whose address exactly matches
+> the sheet. The Task Setup lists only new or changed locations, which the bot adds in Office Ally first.
+> Everything else in this SOP applies as written.
 
 ## 1. Your role
 

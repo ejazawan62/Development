@@ -90,8 +90,10 @@ function printCard(r) {
       `  Eligibility date (DOS): ${c.dos_mdy || 'MISSING: ask the user'}`);
   } else {
     out.push(`PATIENT ${c.patient.last}, ${c.patient.first} · DOB ${c.patient.dob_mdy} · DOS ${c.dos_mdy}${c.pos ? ` · POS ${c.pos}` : ''}`);
-    out.push(`PROVIDERS rendering ${c.providers.rendering.name} (${c.providers.rendering.npi}) · billing NPI ${c.providers.billing.npi}${c.providers.billing.tax_id ? ` · Tax ID ${c.providers.billing.tax_id}` : ''}`);
-    if (c.facility) out.push(`BOX 32 FACILITY ${c.facility.name} · ${c.facility.address}`);
+    if (c.providers.source === 'office_ally') out.push(`PROVIDER from Office Ally: select "${c.providers.rendering.name}" (rendering; billing as set up in Office Ally). No exact match → hold "Held — provider not in Office Ally"`);
+    else out.push(`PROVIDERS (Task Setup, locked) rendering ${c.providers.rendering.name} (${c.providers.rendering.npi}) · billing NPI ${c.providers.billing.npi}${c.providers.billing.tax_id ? ` · Tax ID ${c.providers.billing.tax_id}` : ''}`);
+    if (c.facility && c.facility.source === 'new_location') out.push(`BOX 32 FACILITY (new location, add in Office Ally first if not done) ${c.facility.name} · ${c.facility.address}`);
+    else if (c.facility) out.push(`BOX 32 FACILITY: the Office Ally location whose address is exactly "${c.facility.address}"${c.facility.name ? ` (sheet office: ${c.facility.name})` : ''}. No exact match → hold "Held — facility address mismatch"`);
     if (c.referring) out.push(`REFERRING ${c.referring}`);
     if (c.prior_auth) out.push(`PRIOR AUTH (Box 23) ${c.prior_auth}`);
     out.push(`BOX 21 ICD-10 ${c.diagnoses.map((d, i) => `${String.fromCharCode(65 + i)}. ${d}`).join('  ')}`);
@@ -137,9 +139,9 @@ async function main() {
         return console.log([
           `Task #${data.id} · ${data.task_type}`,
           `Practice:          ${data.practice_name}`,
-          `Provider:          ${data.provider_name} · NPI ${data.provider_npi}`,
-          `Billing NPI / TIN: ${data.billing_npi || '(same as provider)'} / ${data.billing_tax_id || '-'}`,
-          `Facilities:        ${data.facilities.map((f) => `${f.name} — ${f.address}`).join(' | ') || '-'}`,
+          `Provider:          ${data.provider_name ? `${data.provider_name} · NPI ${data.provider_npi} (locked)` : 'from Office Ally (match each sheet row)'}`,
+          `Billing NPI / TIN: ${data.billing_npi || 'from Office Ally'} / ${data.billing_tax_id || 'from Office Ally'}`,
+          `New locations:     ${data.facilities.map((f) => `${f.name} — ${f.address}`).join(' | ') || 'none (use Office Ally locations)'}`,
           `Office Ally:       ${data.oa_account}`,
           `Sheet / tab:       ${data.sheet_link} › ${data.tab_name}`,
           `Columns:           Status ${data.status_col} · Insurance ${data.insurance_col} · Notes ${data.notes_col}`,

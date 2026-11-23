@@ -87,3 +87,25 @@ test('claim check: units/modifiers line up, J-code needs NDC', () => {
   row[7] = '1';
   assert.ok(c.claimCheck(row, task).blockers.includes("Held — CPT/units don't match sheet"));
 });
+
+test('provider and locations from Office Ally when the Task Setup leaves them blank', () => {
+  const task = {
+    practice_name: 'P', provider_name: '', provider_npi: '', facilities: [{ name: 'New Clinic', address: '9 New Rd, Albany, NY 12207' }], extra_drug_codes: '',
+    mapping: { patient_name: 0, dob: 1, dos: 2, office_name: 3, facility_address: 4, provider: 5, cpt: 6, icd: 7 },
+  };
+  const row = ['Doe, Jan', '01/01/1950', '11/01/2026', 'Old Clinic', '1 A St, Albany, NY 12207', 'Dr. Anyone', '99213', 'I10'];
+  let r = c.claimCheck(row, task);
+  assert.deepEqual(r.blockers, []);
+  assert.equal(r.providers.source, 'office_ally');
+  assert.equal(r.providers.rendering.name, 'Dr. Anyone');
+  assert.equal(r.facility.source, 'office_ally');
+  row[4] = '9 New Road, Albany, NY 12207';
+  r = c.claimCheck(row, task);
+  assert.equal(r.facility.source, 'new_location');
+  assert.equal(r.facility.name, 'New Clinic');
+  row[5] = '';
+  assert.ok(c.claimCheck(row, task).blockers.includes('Held — no provider on sheet'));
+  // A provider in the Task Setup still locks the task to that provider.
+  task.provider_name = 'Sana Malik, MD'; task.provider_npi = '1234567893'; row[5] = 'Dr. Anyone';
+  assert.ok(c.claimCheck(row, task).blockers.some((b) => /not the assigned provider/.test(b)));
+});

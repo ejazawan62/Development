@@ -178,7 +178,9 @@ test('submission task: holds, NDC, provider, repeated-issue pause', async () => 
   // Row 3: facility mismatch and a J-code without NDC: cannot be submitted.
   n = await req('POST', '/api/tasks/2/next', null, { bot: true });
   assert.equal(n.data.row_no, 3);
-  assert.ok(n.data.card.blockers.includes('Held — facility address mismatch'));
+  // Not a listed new location: the bot must find the Office Ally location with exactly this address.
+  assert.equal(n.data.card.facility.source, 'office_ally');
+  assert.equal(n.data.card.facility.address, '210 Main St Ste 4, Albany, NY 12207');
   assert.ok(n.data.card.blockers.some((b) => /NDC/.test(b)), JSON.stringify(n.data.card.blockers));
   r = await req('POST', '/api/tasks/2/rows/3/record', { outcome: 'submitted', checklist: claimChecks }, { bot: true });
   assert.equal(r.status, 409);

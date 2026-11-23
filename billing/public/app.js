@@ -66,7 +66,7 @@ const TYPE = { demo: 'Demo creation', claim: 'Claim creation', submission: 'Clai
 const OUTCOME_LABEL = { demo_done: 'Demo Done', already_added: 'Already demo added', not_eligible: 'Not eligible on DOS', claim_created: 'Claim Created', submitted: 'Submitted', held: 'Held' };
 const STANDARD_NOTES = {
   demo: ['Not eligible on DOS — ', 'Member ID not found in ', 'Gender taken from ', 'New MBI from Medicare lookup', 'Medicaid ID from ', 'Medicare Advantage —  is primary', 'Held — insurance not in payer list', 'Portal login failed — waiting for user'],
-  claim: ['Held — provider is , not the assigned provider', 'Held — facility address mismatch', 'Held — NDC missing', "Held — CPT/units don't match sheet", 'Held — demo not found', 'Held — not eligible on DOS'],
+  claim: ['Held — provider not in Office Ally', 'Held — provider is , not the assigned provider', 'Held — facility address mismatch', 'Held — NDC missing', "Held — CPT/units don't match sheet", 'Held — demo not found', 'Held — not eligible on DOS'],
 };
 function errorBox(e) {
   const lines = [e.message];
@@ -314,7 +314,7 @@ async function viewSetup(id) {
     const rm = h('button', { type: 'button', class: 'small', onclick: () => { n.remove(); a.remove(); rm.remove(); } }, 'Remove');
     facilities.append(n, a, rm);
   };
-  (t.facilities.length ? t.facilities : [{ name: '', address: '' }]).forEach(addFacility);
+  t.facilities.forEach(addFacility);
   const PORTALS = ['Office Ally', 'Medicare (NGS)', 'UHC', 'ePACES (NY Medicaid)', 'Availity', 'Other payer portal'];
   const portalBoxes = PORTALS.map((p) => h('label', { class: 'inline' }, h('input', { type: 'checkbox', value: p, checked: t.portals.includes(p) }), p));
   const special = h('textarea', { rows: 3 }, t.special_instructions);
@@ -396,16 +396,18 @@ async function viewSetup(id) {
       h('div', { class: 'main' },
         h('section', { class: 'card' }, h('h2', {}, '1 · Task type'), h('div', { class: 'row' }, typeRadios),
           h('div', { class: 'muted' }, 'Sheet status written: Demo creation → "Demo Done" / "Already demo added" · Claim creation → "Claim Created" · Claim submission → "Submitted" · held rows → "Held" plus the reason in Notes')),
-        h('section', { class: 'card' }, h('h2', {}, '2 · Practice and provider'), h('div', { class: 'grid' },
+        h('section', { class: 'card' }, h('h2', {}, '2 · Practice and provider'),
+          h('div', { class: 'muted' }, 'Provider is optional. Leave it blank and the bot picks the provider in Office Ally that matches each sheet row (no match = held). Fill it in only to lock this task to one provider.'),
+          h('div', { class: 'grid' },
           h('label', {}, 'Practice name', input('practice_name')),
           h('label', {}, 'Office Ally account / practice to use', input('oa_account')),
-          h('label', {}, 'Provider name (rendering)', input('provider_name')),
-          h('label', {}, 'Provider NPI', input('provider_npi', { class: 'mono', inputmode: 'numeric' })),
-          h('label', {}, 'Billing / group NPI (if different)', input('billing_npi', { class: 'mono', inputmode: 'numeric' })),
-          h('label', {}, 'Billing Tax ID (if different)', input('billing_tax_id', { class: 'mono' })))),
-        h('section', { class: 'card' }, h('h2', {}, '3 · Facilities (Box 32)'),
-          h('div', { class: 'muted' }, 'A claim\'s facility must exactly match one of these and the sheet, otherwise it is held. Not needed for demo tasks.'),
-          facilities, h('button', { type: 'button', class: 'link', onclick: () => addFacility() }, '+ Add facility')),
+          h('label', {}, 'Provider name (optional)', input('provider_name', { placeholder: 'From Office Ally' })),
+          h('label', {}, 'Provider NPI (optional)', input('provider_npi', { class: 'mono', inputmode: 'numeric', placeholder: 'From Office Ally' })),
+          h('label', {}, 'Billing / group NPI (optional)', input('billing_npi', { class: 'mono', inputmode: 'numeric', placeholder: 'From Office Ally' })),
+          h('label', {}, 'Billing Tax ID (optional)', input('billing_tax_id', { class: 'mono', placeholder: 'From Office Ally' })))),
+        h('section', { class: 'card' }, h('h2', {}, '3 · New or changed locations (optional)'),
+          h('div', { class: 'muted' }, 'Normally leave this empty: for Box 32 the bot picks the Office Ally location whose address exactly matches the sheet (no match = held). Add a location here only when it is new or its address changed; the bot adds it in Office Ally before working the task.'),
+          facilities, h('button', { type: 'button', class: 'link', onclick: () => addFacility() }, '+ Add location')),
         h('section', { class: 'card' }, h('h2', {}, '4 · Google Sheet'),
           h('label', {}, 'Google Sheet link', input('sheet_link', { placeholder: 'https://docs.google.com/spreadsheets/d/…' })),
           ME.service_account ? h('div', { class: 'muted' }, `Share the sheet (Editor) with ${ME.service_account}`) : null,
@@ -454,7 +456,7 @@ async function viewWorklist(id, filter = 'all') {
 
   shell('tasks',
     h('div', { class: 'row' }, h('h1', {}, `Task #${t.id} · ${TYPE[t.task_type]}`),
-      h('span', { class: 'muted' }, `${t.practice_name} · ${t.provider_name} · NPI ${t.provider_npi} · ${t.tab_name} · rows ${t.row_from || 2}–${t.row_to || 'last'}`),
+      h('span', { class: 'muted' }, `${t.practice_name} · ${t.provider_name ? `${t.provider_name} · NPI ${t.provider_npi}` : 'provider from Office Ally'} · ${t.tab_name} · rows ${t.row_from || 2}–${t.row_to || 'last'}`),
       h('span', { class: 'muted end' }, t.confirmed_at ? `Confirmed ${t.confirmed_at} UTC` : '')),
     portalBar(t.portal_links),
     h('nav', { class: 'tabs', 'aria-label': 'Task' }, h('a', { href: `#/tasks/${id}`, class: 'on' }, 'Worklist'), h('a', { href: `#/tasks/${id}/report` }, 'Report')),
@@ -521,12 +523,16 @@ async function viewRow(id, rowNo) {
   } else {
     main.push(h('section', { class: 'card' }, h('h2', {}, 'Sheet vs Task Setup'), h('div', { class: 'table-wrap' }, h('table', {},
       h('thead', {}, h('tr', {}, ['Check', 'Sheet', 'Task Setup', 'Result'].map((x) => h('th', {}, x)))),
-      h('tbody', {}, c.checks.map((k) => h('tr', { class: k.ok ? '' : 'hl' }, h('td', {}, k.check), h('td', {}, k.sheet), h('td', {}, k.setup), h('td', { class: k.ok ? 'ok' : 'bad' }, k.ok ? '✓ Match' : '✗ Mismatch'))))))));
+      h('tbody', {}, c.checks.map((k) => h('tr', { class: k.ok ? '' : 'hl' }, h('td', {}, k.check), h('td', {}, k.sheet), h('td', {}, k.setup), (k.ok && /^Office Ally/.test(k.setup)) ? h('td', { class: 'muted' }, 'Bot checks in Office Ally') : h('td', { class: k.ok ? 'ok' : 'bad' }, k.ok ? '✓ Match' : '✗ Mismatch'))))))));
     main.push(h('section', { class: 'card' }, h('h2', {}, 'CMS-1500 entry'), h('table', {}, h('tbody', {},
       h('tr', {}, h('td', {}, 'Patient'), h('td', { class: 'typed' }, `${c.patient.last}, ${c.patient.first} · DOB ${c.patient.dob_mdy}`)),
       h('tr', {}, h('td', {}, 'DOS (from/to)'), h('td', { class: 'typed' }, c.dos_mdy)),
-      h('tr', {}, h('td', {}, 'Rendering / billing'), h('td', {}, `${c.providers.rendering.name} · ${c.providers.rendering.npi} / NPI ${c.providers.billing.npi}${c.providers.billing.tax_id ? ` · Tax ID ${c.providers.billing.tax_id}` : ''}`)),
-      h('tr', {}, h('td', {}, 'Box 32 facility'), h('td', {}, c.facility ? `${c.facility.name} · ${c.facility.address}` : h('span', { class: 'bad' }, 'No matching facility'))),
+      h('tr', {}, h('td', {}, 'Rendering / billing'), h('td', {}, c.providers.source === 'office_ally'
+        ? [h('span', {}, 'From Office Ally: select the provider '), h('span', { class: 'typed' }, c.providers.rendering.name || '(none on sheet)'), h('div', { class: 'muted' }, 'No exact match in Office Ally = hold the claim')]
+        : `${c.providers.rendering.name} · ${c.providers.rendering.npi} / NPI ${c.providers.billing.npi}${c.providers.billing.tax_id ? ` · Tax ID ${c.providers.billing.tax_id}` : ''}`)),
+      h('tr', {}, h('td', {}, 'Box 32 facility'), h('td', {}, !c.facility ? h('span', { class: 'bad' }, 'No facility address on sheet')
+        : c.facility.source === 'new_location' ? [h('span', { class: 'typed' }, `${c.facility.name} · ${c.facility.address}`), h('div', { class: 'muted' }, 'New location from the Task Setup (added in Office Ally at the start)')]
+          : [h('span', {}, 'Office Ally location with exactly: '), h('span', { class: 'typed' }, c.facility.address), c.facility.name ? h('div', { class: 'muted' }, `Sheet office: ${c.facility.name}. No exact match in Office Ally = hold.`) : null])),
       c.pos ? h('tr', {}, h('td', {}, 'Place of service'), h('td', { class: 'typed' }, c.pos)) : null,
       c.prior_auth ? h('tr', {}, h('td', {}, 'Prior auth (Box 23)'), h('td', { class: 'typed' }, c.prior_auth)) : null,
       c.referring ? h('tr', {}, h('td', {}, 'Referring'), h('td', {}, c.referring)) : null,
@@ -593,7 +599,7 @@ async function viewReport(id) {
     h('nav', { class: 'tabs', 'aria-label': 'Task' }, h('a', { href: `#/tasks/${id}` }, 'Worklist'), h('a', { href: `#/tasks/${id}/report`, class: 'on' }, 'Report')),
     h('section', { class: 'card' }, h('div', { class: 'grid' },
       h('div', {}, h('div', { class: 'muted' }, 'Practice'), h('strong', {}, r.task.practice)),
-      h('div', {}, h('div', { class: 'muted' }, 'Provider'), h('strong', {}, `${r.task.provider} · ${r.task.provider_npi}`)),
+      h('div', {}, h('div', { class: 'muted' }, 'Provider'), h('strong', {}, r.task.provider ? `${r.task.provider} · ${r.task.provider_npi}` : 'From Office Ally')),
       h('div', {}, h('div', { class: 'muted' }, 'Last row completed'), h('strong', {}, r.last_row_completed ?? 'none'), r.next_row ? h('div', { class: 'muted' }, `Next session starts at row ${r.next_row}`) : h('div', { class: 'muted' }, 'All rows worked')),
       h('div', {}, h('div', { class: 'muted' }, 'Average bot time per row'), h('strong', {}, r.avg_seconds_per_row ? `${Math.floor(r.avg_seconds_per_row / 60)}m ${r.avg_seconds_per_row % 60}s` : '—')))),
     h('div', { class: 'stats' },

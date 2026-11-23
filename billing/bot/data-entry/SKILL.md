@@ -72,6 +72,10 @@ prints their new messages at the top as `>>> MESSAGE FROM <name>` / `>>> PAUSE` 
 2. Open Office Ally and the portals from the **Portal links** that `show` prints (the same buttons the team uses
    in Billing Control). Don't use other addresses for them. Switch Office Ally to the practice/account named in the
    setup before touching anything.
+   **New locations:** if `show` lists "New locations" (claim tasks), add each one in Office Ally's practice
+   setup (facilities / service locations) before the first claim: search the existing locations first so you
+   don't create a duplicate, type the name and address exactly as given, save, and `bot say` what you added.
+   If Office Ally won't save it, `alert --kind error` and stop.
 3. Logins: use the saved logins in Chrome. If the user gives you a password, type it only into the login
    field; never repeat it in chat, notes, reports or commands. One-time code: run
    `alert --kind otp`, then ask the user for the code in chat and wait. A login that fails twice: stop,
@@ -118,8 +122,14 @@ prints their new messages at the top as `>>> MESSAGE FROM <name>` / `>>> PAUSE` 
   "Demo added first"; in a **submission** task, hold with `Held — demo not found`.
 - Patient Visits → Add New Visit / New Claim. Select the patient (name + DOB). Confirm the primary
   insurance is active on the DOS; check eligibility again if anything looks off.
-- Fill the CMS-1500 from the card: billing and rendering provider (Task Setup NPI/Tax ID); **Box 32
-  facility whose name and address exactly match the card**; referring if listed; DOS from/to; POS;
+- Fill the CMS-1500 from the card:
+  - **Provider:** if the card says "PROVIDER from Office Ally", select the Office Ally provider whose name matches
+    the card exactly (same person, not just the same last name). None matches → hold
+    `Held — provider not in Office Ally`. If the card shows a locked Task Setup provider, use exactly that one.
+  - **Box 32:** pick the Office Ally location whose address **exactly** matches the card's address (street,
+    suite, city, state, ZIP). Two candidates or none → hold `Held — facility address mismatch`. Never pick a
+    location by name alone.
+  - Then: referring if listed; DOS from/to; POS;
   Box 21 ICD-10 in order; Box 24 lines with code, modifiers, pointer, units, charge; for every drug line
   the card's NDC entry (e.g. `N400641036721 ML1`) in the shaded line; prior auth in Box 23 if listed;
   accept assignment Yes, signature on file Yes (unless special instructions say otherwise).
@@ -139,6 +149,7 @@ prints their new messages at the top as `>>> MESSAGE FROM <name>` / `>>> PAUSE` 
 - `Medicaid ID from [state Medicaid portal]`
 - `Medicare Advantage — [plan name] is primary`
 - `Held — provider is [name], not the assigned provider`
+- `Held — provider not in Office Ally`
 - `Held — facility address mismatch`
 - `Held — NDC missing`
 - `Held — CPT/units don't match sheet`

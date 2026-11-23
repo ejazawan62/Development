@@ -357,28 +357,31 @@ function claimCheck(row, task) {
     add('Practice', normalizeText(pv) === normalizeText(task.practice_name), pv, task.practice_name, `Held — practice is "${pv}", not ${task.practice_name}`);
   }
 
+  // Provider: locked to the Task Setup provider when one is given; otherwise the bot picks the Office Ally
+  // provider that matches the sheet (and holds the claim if none does).
   const provRaw = cell(row, m, 'provider');
-  add('Provider', providerMatches(provRaw, task.provider_name, task.provider_npi), provRaw, `${task.provider_name} · ${task.provider_npi}`,
-    `Held — provider is ${provRaw || '(blank)'}, not the assigned provider`);
+  const lockedProvider = !!(task.provider_name || task.provider_npi);
+  if (lockedProvider) {
+    add('Provider', providerMatches(provRaw, task.provider_name, task.provider_npi), provRaw, `${task.provider_name} · ${task.provider_npi}`,
+      `Held — provider is ${provRaw || '(blank)'}, not the assigned provider`);
+  } else {
+    add('Provider', !!provRaw, provRaw, 'Office Ally provider with this name', 'Held — no provider on sheet');
+  }
 
-  // Facility: office name picks the setup facility; its address must match the sheet exactly.
+  // Facility (Box 32): the bot picks the Office Ally location whose address exactly matches the sheet.
+  // Locations listed in the Task Setup are new or changed ones the bot adds in Office Ally first.
   const office = cell(row, m, 'office_name');
   const facAddr = cell(row, m, 'facility_address');
   let facility = null;
-  if (office) {
-    facility = task.facilities.find((f) => normalizeText(f.name) === normalizeText(office)) || null;
-    add('Office name', !!facility, office, task.facilities.map((f) => f.name).join(' / '), `Held — office "${office}" is not a Task Setup facility`);
-  }
-  if (!facAddr) add('Facility address', false, '', facility ? facility.address : '', 'Held — facility address missing in sheet');
+  if (!facAddr) add('Facility address', false, '', 'address needed to pick the Office Ally location', 'Held — facility address missing in sheet');
   else {
-    const candidates = facility ? [facility] : task.facilities;
     let hit = null;
-    for (const f of candidates) {
+    for (const f of task.facilities) {
       const r = addressesMatch(facAddr, f.address);
       if (r.match) { hit = f; if (r.warning) warnings.push(r.warning); break; }
     }
-    add('Facility address', !!hit, facAddr, candidates.map((f) => f.address).join(' / '), 'Held — facility address mismatch');
-    if (hit) facility = hit;
+    facility = hit ? { ...hit, source: 'new_location' } : { name: office || '', address: facAddr, source: 'office_ally' };
+    add('Facility address', true, facAddr, hit ? `New location "${hit.name}" from Task Setup (add it in Office Ally first)` : 'Office Ally location with exactly this address');
   }
 
   const dosRaw = cell(row, m, 'dos');
@@ -497,10 +500,9 @@ function claimCheck(row, task) {
     referring: cell(row, m, 'referring') || null,
     diagnoses: dx,
     lines,
-    providers: {
-      rendering: { name: task.provider_name, npi: task.provider_npi },
-      billing: { npi: task.billing_npi || task.provider_npi, tax_id: task.billing_tax_id || null },
-    },
+    providers: lockedProvider
+      ? { source: 'task_setup', rendering: { name: task.provider_name, npi: task.provider_npi }, billing: { npi: task.billing_npi || task.provider_npi, tax_id: task.billing_tax_id || null } }
+      : { source: 'office_ally', rendering: { name: provRaw, npi: null }, billing: { npi: task.billing_npi || null, tax_id: task.billing_tax_id || null } },
   };
 }
 
