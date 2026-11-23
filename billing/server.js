@@ -614,9 +614,16 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
   app.post('/api/tasks/:id/resume', requireUser, (req, res) => {
     const t = getTask(req.params.id);
     q.run('UPDATE tasks SET paused_by = NULL WHERE id = ?', t.id);
+    // The person can also confirm that the open login/error/repeated-issue alerts are fixed.
+    const fixed = req.body && req.body.resolve_alerts ? openPausingAlerts(t.id) : [];
+    for (const a of fixed) {
+      q.run("UPDATE alerts SET resolved = 1, resolution = ?, resolved_by = ?, resolved_at = datetime('now') WHERE id = ?", 'Fixed (resumed from chat)', req.user.id, a.id);
+    }
     maybeUnpause(t.id);
     const info = pauseInfo(t.id);
-    postMessage(t.id, 'system', req.user.name, info.paused ? `${req.user.name} resumed, but an open alert still pauses the bot` : `Resumed by ${req.user.name}`, 'resume');
+    postMessage(t.id, 'system', req.user.name, info.paused
+      ? `${req.user.name} resumed, but an open alert still pauses the bot: ${info.alerts.join(' / ')}`
+      : `Resumed by ${req.user.name}${fixed.length ? ` (marked fixed: ${fixed.map((a) => a.message).join(' / ')})` : ''}`, 'resume');
     audit('task', t.id, 'resume', null, actorName(req));
     res.json(info);
   });

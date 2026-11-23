@@ -150,3 +150,17 @@ test('Start bot button picks the next free bot name', async () => {
   assert.equal(r.status, 501);
   assert.match(r.data.prompt, /^You are Bot \d+\. Use the data-entry skill and start task 2\.$/);
 });
+
+test('Resume from chat can also clear a login-failed alert', async () => {
+  // Use task 2 with a fresh bot token (the earlier test deleted the first one).
+  token = (await req('POST', '/api/tokens', { name: 'OFFICE-PC-2' })).data.token;
+  await req('POST', '/api/tasks/2/release');
+  assert.equal((await req('POST', '/api/tasks/2/next', null, 'Bot 1')).status, 200);
+  await req('POST', '/api/tasks/2/alerts', { kind: 'login_failed', message: 'Office Ally login failed twice' }, 'Bot 1');
+  await req('POST', '/api/tasks/2/pause', { note: 'hold on' });
+  let r = (await req('POST', '/api/tasks/2/resume', {})).data;
+  assert.equal(r.paused, true, 'plain resume leaves the alert pause');
+  r = (await req('POST', '/api/tasks/2/resume', { resolve_alerts: true })).data;
+  assert.equal(r.paused, false);
+  assert.equal((await req('POST', '/api/tasks/2/next', null, 'Bot 1')).status, 200);
+});

@@ -138,6 +138,7 @@ function mountChat(taskId) {
   }
   function render(state) {
     CHAT.paused = state.paused;
+    CHAT.alerts = state.alerts || [];
     status.textContent = state.paused ? ` · Paused${state.paused_by ? ` by ${state.paused_by}` : ''}` : state.bot ? ` · ${state.bot.name} ${state.bot.live ? 'working' : 'silent'}${state.current_row ? ` · row ${state.current_row}` : ''}` : ' · no bot on this task';
     status.className = `chat-status ${state.paused ? 'paused' : ''}`;
     pauseBtn.textContent = state.paused ? 'Resume' : 'Pause bot';
@@ -167,7 +168,13 @@ function mountChat(taskId) {
   }
   pauseBtn.addEventListener('click', async () => {
     try {
-      if (CHAT.paused) await api('POST', `/api/tasks/${taskId}/resume`);
+      if (CHAT.paused) {
+        let resolve = false;
+        if (CHAT.alerts.length) {
+          resolve = confirm(`The bot is also paused by:\n\n• ${CHAT.alerts.join('\n• ')}\n\nIs that fixed now? OK = mark it fixed and let the bot continue. Cancel = only lift your own pause.`);
+        }
+        await api('POST', `/api/tasks/${taskId}/resume`, { resolve_alerts: resolve });
+      }
       else { await api('POST', `/api/tasks/${taskId}/pause`, { note: input.value.trim() }); input.value = ''; }
       poll();
     } catch (e) { err.replaceChildren(errorBox(e)); }
