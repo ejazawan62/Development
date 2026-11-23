@@ -185,6 +185,8 @@ function open(file) {
   }
   const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
   if (!userCols.has('removed_at')) db.exec('ALTER TABLE users ADD COLUMN removed_at TEXT');
+  const tokenCols = new Set(db.prepare('PRAGMA table_info(api_tokens)').all().map((c) => c.name));
+  if (!tokenCols.has('deleted_at')) db.exec('ALTER TABLE api_tokens ADD COLUMN deleted_at TEXT');
   // Starter portal links (all practices). Admins can change them in Settings.
   if (!db.prepare("SELECT value FROM settings WHERE key = 'portals_seeded'").get()) {
     const add = db.prepare('INSERT INTO portals (practice_id, name, url, sort) VALUES (NULL, ?, ?, ?)');

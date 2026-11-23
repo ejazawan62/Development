@@ -131,3 +131,14 @@ test('chat: people message the bot, pause it, and resume it in real time', async
   const all = (await req('GET', '/api/tasks/1/messages')).data.messages;
   assert.deepEqual(all.map((m) => m.sender), ['user', 'system', 'bot', 'user', 'system']);
 });
+
+test('deleting a bot token stops it at once and frees its tasks', async () => {
+  const list = (await req('GET', '/api/tokens')).data;
+  const tok = list.find((x) => x.name === 'OFFICE-PC');
+  const d = await req('DELETE', `/api/tokens/${tok.id}`);
+  assert.equal(d.status, 200);
+  assert.ok(d.data.released_tasks >= 1);
+  assert.ok(!(await req('GET', '/api/tokens')).data.some((x) => x.id === tok.id));
+  assert.equal((await req('GET', '/api/tasks', null, 'Bot 1')).status, 401, 'token no longer works');
+  assert.ok((await req('GET', '/api/tasks/1')).data.bot === null, 'task released');
+});

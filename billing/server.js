@@ -911,7 +911,21 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {} }) {
     audit('user', u.id, 'update', { active: b.active, role: b.role, password_changed: b.password != null }, actorName(req));
     res.json({ ok: true });
   });
-  app.get('/api/tokens', requireAdmin, (req, res) => res.json(q.all('SELECT id, name, created_at, last_used_at, revoked FROM api_tokens ORDER BY id DESC')));
+  app.get('/api/tokens', requireAdmin, (req, res) => res.json(q.all('SELECT id, name, created_at, last_used_at, revoked FROM api_tokens WHERE deleted_at IS NULL ORDER BY id DESC')));
+  // Deleting stops the token at once and takes it off the list. Past work keeps showing which bot did it.
+  app.delete('/api/tokens/:id', requireAdmin, (req, res) => {
+    const tok = q.get('SELECT * FROM api_tokens WHERE id = ? AND deleted_at IS NULL', Number(req.params.id));
+    if (!tok) throw new HttpError(404, 'Token not found');
+    let released = 0;
+    tx(db, () => {
+      q.run("UPDATE api_tokens SET revoked = 1, deleted_at = datetime('now') WHERE id = ?", tok.id);
+      // Free any task its bots were holding, so another bot can take over right away.
+      released = q.run("UPDATE tasks SET bot_name = NULL, bot_claimed_at = NULL WHERE bot_name LIKE ? ESCAPE '\\'",
+        tok.name.replace(/[\\%_]/g, (c) => `\\${c}`) + '/%').changes;
+      audit('token', tok.id, 'delete', { name: tok.name, released }, actorName(req));
+    });
+    res.json({ ok: true, released_tasks: Number(released) });
+  });
   app.post('/api/tokens', requireAdmin, (req, res) => {
     const name = String(req.body.name || '').trim();
     if (!name) throw bad('Give the token a name (for example the bot PC name)');

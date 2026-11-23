@@ -772,7 +772,12 @@ async function viewAdmin(flash, newToken) {
         } catch (e) { tokenMsg.replaceChildren(errorBox(e)); }
       } }, 'Create token')),
       h('table', {}, h('tbody', {}, tokens.map((t) => h('tr', { class: t.revoked ? 'dim' : '' }, h('td', {}, t.name), h('td', { class: 'muted' }, `created ${t.created_at} · last used ${t.last_used_at || 'never'}`),
-        h('td', {}, t.revoked ? 'revoked' : h('button', { type: 'button', class: 'small', onclick: async () => { if (confirm(`Revoke ${t.name}?`)) { await api('POST', `/api/tokens/${t.id}/revoke`); viewAdmin(); } } }, 'Revoke'))))))),
+        h('td', {}, t.revoked ? h('span', { class: 'muted' }, 'stopped') : null, ' ', h('button', { type: 'button', class: 'small', 'aria-label': `Delete token ${t.name}`, onclick: async () => {
+          const used = t.last_used_at ? `It was last used ${t.last_used_at} UTC. Any bot using it stops working immediately and its task is released.` : 'It has never been used.';
+          if (!confirm(`Delete the bot token "${t.name}"?\n\n${used}\n\nThis can't be undone. A bot PC that still needs access will need a new token.`)) return;
+          if (t.last_used_at && !confirm(`Last check: delete "${t.name}" now? Its bot will stop immediately.`)) return;
+          try { await api('DELETE', `/api/tokens/${t.id}`); viewAdmin(); } catch (e) { tokenMsg.replaceChildren(errorBox(e)); }
+        } }, 'Delete'))))))),
     h('section', { class: 'card' }, h('h2', {}, 'Users'), userMsg,
       h('table', {}, h('thead', {}, h('tr', {}, ['Name', 'Username', 'Role', ''].map((x) => h('th', {}, x)))),
         h('tbody', {}, users.map((u) => h('tr', { class: u.active ? '' : 'dim' }, h('td', {}, u.name), h('td', { class: 'mono' }, u.email), h('td', {}, u.role),
