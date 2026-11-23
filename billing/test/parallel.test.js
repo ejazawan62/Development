@@ -164,3 +164,11 @@ test('Resume from chat can also clear a login-failed alert', async () => {
   assert.equal(r.paused, false);
   assert.equal((await req('POST', '/api/tasks/2/next', null, 'Bot 1')).status, 200);
 });
+
+test('record --next: writes the row and hands back the next one in one step', async () => {
+  const first = (await req('POST', '/api/tasks/2/next', null, 'Bot 1')).data;
+  const r = await req('POST', `/api/tasks/2/rows/${first.row_no}/record`, { outcome: 'held', notes: 'Held — test', then_next: true }, 'Bot 1');
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.ok(r.data.next, 'next row included');
+  assert.ok(r.data.next.done || r.data.next.row_no > first.row_no);
+});

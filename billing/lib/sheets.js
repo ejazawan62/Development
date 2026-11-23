@@ -22,6 +22,12 @@ function spreadsheetIdFromLink(link) {
   return /^[a-zA-Z0-9_-]{20,}$/.test(String(link || '').trim()) ? String(link).trim() : null;
 }
 const quoteTab = (tab) => `'${String(tab).replace(/'/g, "''")}'`;
+const mergeNote = (existing, note) => {
+  const e = String(existing || '').trim();
+  if (!note) return e;
+  if (!e) return note;
+  return e.split(/\s*\|\s*/).includes(note) ? e : `${e} | ${note}`;
+};
 
 // ---------- Google adapter ----------
 function googleAdapter(serviceAccountFile) {
@@ -109,6 +115,22 @@ function localAdapter(file) {
       const to = m ? Number(m[2]) : rows.length;
       return rows.slice(from - 1, to).map((r) => r.map((v) => (v == null ? '' : String(v))));
     },
+    /** Checks the expected cells, then writes; one step. Returns { cells } or { mismatch: true }. */
+    async recordRow(id, tab, { row, expect, writes }) {
+      const d = load();
+      const rows = getTab(d, id, tab);
+      const r = rows[row - 1] || [];
+      const val = (c) => (r[c] == null ? '' : String(r[c]));
+      if (expect.some((e) => val(e.col) !== e.value)) return { mismatch: true };
+      while (rows.length < row) rows.push([]);
+      const target = rows[row - 1];
+      for (const w of writes) {
+        while (target.length <= w.col) target.push('');
+        target[w.col] = w.mode === 'append' ? mergeNote(target[w.col], w.value) : w.value;
+      }
+      save(d);
+      return { cells: target.map((v) => (v == null ? '' : String(v))) };
+    },
     async writeCells(id, tab, cells) {
       const d = load();
       const rows = getTab(d, id, tab);
@@ -169,6 +191,16 @@ function appsScriptAdapter(url, secret, { allowAnyUrl = false } = {}) {
     async writeCells(spreadsheetId, tab, cells) {
       await call('write', { spreadsheetId, tab, cells: cells.map((c) => ({ row: c.row, col: c.col, value: String(c.value) })) });
     },
+    /** One round trip (script version 2+). Returns null when the deployed script is older. */
+    async recordRow(spreadsheetId, tab, { row, expect, writes }) {
+      try {
+        const r = await call('record', { spreadsheetId, tab, row, expect, writes: writes.map((w) => ({ ...w, value: String(w.value) })) });
+        return r.mismatch ? { mismatch: true } : { cells: (r.cells || []).map((v) => (v == null ? '' : String(v))) };
+      } catch (e) {
+        if (/unknown action/.test(e.message)) return null;
+        throw e;
+      }
+    },
   };
 }
 
@@ -189,6 +221,7 @@ function createSheets(env = process.env, dataDir, getSettings = () => ({}), adap
   };
   return {
     get mode() { return current().mode; },
+    get recordRow() { const a = current(); return a.recordRow ? (...x) => a.recordRow(...x) : null; },
     listTabs: (...a) => current().listTabs(...a),
     readRange: (...a) => current().readRange(...a),
     writeCells: (...a) => current().writeCells(...a),

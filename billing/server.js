@@ -5,7 +5,7 @@ const { EventEmitter } = require('node:events');
 const express = require('express');
 const { open, tx, hashPassword, verifyPassword, sha256, readSettings, writeSetting } = require('./lib/db');
 const { createSheets, appsScriptAdapter, colToLetter, letterToCol, spreadsheetIdFromLink } = require('./lib/sheets');
-const { appsScriptSource } = require('./lib/apps-script');
+const { appsScriptSource, SCRIPT_VERSION } = require('./lib/apps-script');
 const { windowsLauncher } = require('./lib/launcher');
 const { FIELDS, guessMapping, resolveColumn, detectColumn, missingRequired } = require('./lib/mapping');
 const checks = require('./lib/checks');
@@ -423,6 +423,8 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
         row_no: r.row_no, patient: name.unsplit || [name.last, name.first].filter(Boolean).join(', '),
         dob: checks.cell(cells, t.mapping, 'dob'), dos: checks.cell(cells, t.mapping, 'dos'), ...scope,
         sheet_status: t.status_idx != null ? String(cells[t.status_idx] || '') : '',
+        insurance: t.insurance_idx != null ? String(cells[t.insurance_idx] || '') : '',
+        member_id: checks.cell(cells, t.mapping, 'member_id'),
         sheet_notes: t.notes_idx != null ? String(cells[t.notes_idx] || '') : '',
         current: t.current_row === r.row_no,
       };
@@ -530,7 +532,7 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     let n = 1;
     while (busy.has(`Bot ${n}`)) n++;
     const botName = `Bot ${n}`;
-    const r = launcher({ taskId: t.id, botName, billingHome: __dirname, billingUrl: `http://127.0.0.1:${publicPort}` });
+    const r = launcher({ taskId: t.id, botName, billingHome: __dirname, billingUrl: `http://127.0.0.1:${publicPort}`, model: readSettings(db).bot_model || '' });
     if (r.ok) q.run("UPDATE tasks SET launch_bot = ?, launched_at = datetime('now') WHERE id = ?", botName, t.id);
     audit('task', t.id, 'start_bot', { bot: botName, ok: r.ok }, actorName(req));
     if (r.ok) postMessage(t.id, 'system', req.user.name, `${req.user.name} started ${botName}. It will show the Task Setup in its window and wait for a "yes".`, 'start');
@@ -646,8 +648,11 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     onMsg();
   });
 
-  app.post('/api/tasks/:id/next', requireAny, wrap(async (req, res) => {
-    const t = getTask(req.params.id);
+  const ROW_CACHE_MINUTES = 10;
+  /** Picks and starts the next row. Uses the cached rows (re-read in one call when older than 10 minutes);
+   *  the write in "record" checks the sheet still matches before anything is written. */
+  async function nextRow(req, taskId) {
+    let t = getTask(taskId);
     if (t.state !== 'confirmed') throw new HttpError(409, 'Task is not confirmed. A person must confirm the Task Setup first.');
     if (t.bot_paused) {
       const alerts = openPausingAlerts(t.id);
@@ -655,27 +660,34 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
       throw new HttpError(423, `Paused: ${why}. Read the messages, then wait for "Resumed".`, { alerts, inbox: req.token ? takeInbox(t.id) : [] });
     }
     if (req.token) claimTask(t, botId(req));
+    const loadedAt = t.rows_loaded_at ? Date.parse(t.rows_loaded_at.replace(' ', 'T') + 'Z') : 0;
+    if (Date.now() - loadedAt > ROW_CACHE_MINUTES * 60000) {
+      const before = new Map(q.all('SELECT row_no, cells FROM task_rows WHERE task_id = ?', t.id).map((r) => [r.row_no, JSON.parse(r.cells)]));
+      const rows = await loadRows(t);
+      for (const r of rows) {
+        const old = before.get(r.row_no);
+        if (old && latestRecords(t.id).has(r.row_no) === false && checks.rowIdentity(old, t.mapping) !== checks.rowIdentity(r.cells, t.mapping) && checks.rowIdentity(old, t.mapping).replace(/\|/g, '')) {
+          throw new HttpError(409, `Row ${r.row_no} changed in the sheet (different patient). The sheet may have been re-sorted. Ask the user to check the sheet.`);
+        }
+      }
+      t = getTask(taskId);
+    }
     const latest = latestRecords(t.id);
     let candidates;
     if (t.current_row && !latest.has(t.current_row)) candidates = [t.current_row];
     else candidates = q.all('SELECT row_no FROM task_rows WHERE task_id = ? ORDER BY row_no', t.id).map((r) => r.row_no).filter((n) => !latest.has(n));
     for (const rowNo of candidates) {
-      const [fresh] = await readRows(t, rowNo, rowNo);
-      const cached = cachedRow(t.id, rowNo);
-      if (cached && checks.rowIdentity(cached, t.mapping) !== checks.rowIdentity(fresh.cells, t.mapping)) {
-        throw new HttpError(409, `Row ${rowNo} changed in the sheet (different patient). The sheet may have been re-sorted. Ask the user to reload the task rows.`);
-      }
-      q.run('UPDATE task_rows SET cells = ? WHERE task_id = ? AND row_no = ?', JSON.stringify(fresh.cells), t.id, rowNo);
-      const scope = scopeOf(t, fresh.cells);
-      if (!scope.in_scope) continue;
+      const cells = cachedRow(t.id, rowNo);
+      if (!cells || !scopeOf(t, cells).in_scope) continue;
       const resumed = t.current_row === rowNo;
       q.run("UPDATE tasks SET current_row = ?, current_row_started_at = CASE WHEN current_row = ? THEN current_row_started_at ELSE datetime('now') END WHERE id = ?", rowNo, rowNo, t.id);
-      return res.json({ done: false, resumed, row_no: rowNo, card: cardFor(t, fresh.cells), outcomes_allowed: allowedOutcomes(t), special_instructions: t.special_instructions, inbox: req.token ? takeInbox(t.id) : [] });
+      return { done: false, resumed, row_no: rowNo, card: cardFor(t, cells), outcomes_allowed: allowedOutcomes(t), special_instructions: t.special_instructions, inbox: req.token ? takeInbox(t.id) : [] };
     }
     q.run('UPDATE tasks SET current_row = NULL WHERE id = ?', t.id);
     if (req.token) releaseTask(t.id);
-    res.json({ done: true, message: 'Every in-scope row has an outcome. Give the user the end-of-session report.' });
-  }));
+    return { done: true, message: 'Every in-scope row has an outcome. Give the user the end-of-session report.' };
+  }
+  app.post('/api/tasks/:id/next', requireAny, wrap(async (req, res) => res.json(await nextRow(req, req.params.id))));
 
   app.post('/api/tasks/:id/rows/:row/record', requireAny, wrap(async (req, res) => {
     const t = getTask(req.params.id);
@@ -688,25 +700,40 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     if (latest && !(req.user && b.correction)) throw new HttpError(409, `Row ${rowNo} already has an outcome (${latest.outcome}). A person can record a correction in the app.`);
     const cached = cachedRow(t.id, rowNo);
     if (!cached) throw new HttpError(404, 'Row is not in this task');
-
-    const [fresh] = await readRows(t, rowNo, rowNo);
-    if (checks.rowIdentity(cached, t.mapping) !== checks.rowIdentity(fresh.cells, t.mapping)) {
-      throw new HttpError(409, `Row ${rowNo} in the sheet now shows a different patient. Nothing was written. Reload the task rows and check the sheet.`);
-    }
-    const precheck = cardFor(t, fresh.cells);
     const checklist = Array.isArray(b.checklist) ? b.checklist : String(b.checklist || '').split(',').map((x) => x.trim()).filter(Boolean);
-    const v = rules.validateRecord({ task: t, outcome: b.outcome, insurance: b.insurance, notes: b.notes, checklist, precheck: t.task_type === 'demo' ? null : precheck, payers: payersFor(t.practice_id) });
+    const validate = (cells) => rules.validateRecord({ task: t, outcome: b.outcome, insurance: b.insurance, notes: b.notes, checklist, precheck: t.task_type === 'demo' ? null : cardFor(t, cells), payers: payersFor(t.practice_id) });
 
-    const writes = [];
-    if (v.status) writes.push({ row: rowNo, col: t.status_idx, value: v.status });
-    if (v.insurance) writes.push({ row: rowNo, col: t.insurance_idx, value: v.insurance });
-    const existingNotes = String(fresh.cells[t.notes_idx] || '');
-    const mergedNotes = rules.mergeNotes(existingNotes, v.notes);
-    if (mergedNotes !== existingNotes) writes.push({ row: rowNo, col: t.notes_idx, value: mergedNotes });
-    if (writes.length) await sheets.writeCells(t.spreadsheet_id, t.tab_name, writes);
-
-    const newCells = [...fresh.cells];
-    for (const w of writes) { while (newCells.length <= w.col) newCells.push(''); newCells[w.col] = w.value; }
+    // Fast path: one call to the sheet that checks every column the checks read is unchanged, then writes.
+    let v = validate(cached);
+    const watched = [...new Set(Object.values(t.mapping).filter((i) => i != null && i >= 0 && i !== t.status_idx && i !== t.notes_idx && i !== t.insurance_idx))];
+    const cellWrites = (vv) => [
+      vv.status ? { col: t.status_idx, value: vv.status, mode: 'set' } : null,
+      vv.insurance ? { col: t.insurance_idx, value: vv.insurance, mode: 'set' } : null,
+      vv.notes ? { col: t.notes_idx, value: vv.notes, mode: 'append' } : null,
+    ].filter(Boolean);
+    let result = sheets.recordRow
+      ? await sheets.recordRow(t.spreadsheet_id, t.tab_name, { row: rowNo, expect: watched.map((c) => ({ col: c, value: String(cached[c] == null ? '' : cached[c]) })), writes: cellWrites(v) })
+      : null;
+    let fresh = null;
+    if (!result || result.mismatch) {
+      // Slow path (older script, or the row changed since it was read): re-read, re-check, write.
+      [fresh] = await readRows(t, rowNo, rowNo);
+      if (checks.rowIdentity(cached, t.mapping) !== checks.rowIdentity(fresh.cells, t.mapping)) {
+        throw new HttpError(409, `Row ${rowNo} in the sheet now shows a different patient. Nothing was written. Reload the task rows and check the sheet.`);
+      }
+      v = validate(fresh.cells);
+      const writes = [];
+      if (v.status) writes.push({ row: rowNo, col: t.status_idx, value: v.status });
+      if (v.insurance) writes.push({ row: rowNo, col: t.insurance_idx, value: v.insurance });
+      const existingNotes = String(fresh.cells[t.notes_idx] || '');
+      const mergedNotes = rules.mergeNotes(existingNotes, v.notes);
+      if (mergedNotes !== existingNotes) writes.push({ row: rowNo, col: t.notes_idx, value: mergedNotes });
+      if (writes.length) await sheets.writeCells(t.spreadsheet_id, t.tab_name, writes);
+      result = { cells: [...fresh.cells] };
+      for (const w of writes) { while (result.cells.length <= w.col) result.cells.push(''); result.cells[w.col] = w.value; }
+    }
+    const newCells = result.cells;
+    const writes = cellWrites(v).map((w) => ({ row: rowNo, col: w.col, value: newCells[w.col] }));
     let stop = null;
     tx(db, () => {
       q.run(`INSERT INTO records (task_id, row_no, outcome, status_text, insurance, notes, checklist, actor, user_id, token_id, started_at)
@@ -729,11 +756,16 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
       }
       audit('row', rowNo, 'record', { task: t.id, outcome: b.outcome, writes: writes.map((w) => colToLetter(w.col)) }, actorName(req));
     });
-    res.json({
+    const out = {
       ok: true, row_no: rowNo, written: writes.map((w) => ({ cell: `${colToLetter(w.col)}${w.row}`, value: w.value })),
       stop_and_ask: stop,
       inbox: req.token ? takeInbox(t.id) : [], ...(req.token ? pauseInfo(t.id) : {}),
-    });
+    };
+    // "record and give me the next one" in a single step.
+    if (b.then_next && !stop) {
+      try { out.next = await nextRow(req, t.id); } catch (e) { out.next = { error: e.message, status: e.status || 500, ...(e.extra || {}) }; }
+    }
+    res.json(out);
   }));
 
   app.post('/api/tasks/:id/alerts', requireAny, (req, res) => {
@@ -993,6 +1025,9 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
       url: s.apps_script_url || '',
       account: s.apps_script_account || '',
       connected_at: s.apps_script_connected_at || '',
+      script_version: Number(s.apps_script_version || 1),
+      latest_script_version: SCRIPT_VERSION,
+      current_script: s.apps_script_secret ? appsScriptSource(s.apps_script_secret) : null,
       script: s.pending_secret || s.apps_script_secret ? appsScriptSource(s.pending_secret || s.apps_script_secret) : null,
     };
   }
@@ -1018,13 +1053,33 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     writeSetting(db, 'apps_script_url', url);
     writeSetting(db, 'apps_script_secret', secret);
     writeSetting(db, 'apps_script_account', ping.account || '');
+    writeSetting(db, 'apps_script_version', String(ping.version || 1));
     writeSetting(db, 'apps_script_connected_at', new Date().toISOString());
     writeSetting(db, 'pending_secret', null);
     audit('settings', 0, 'sheets_connect', { account: ping.account }, actorName(req));
     res.json(sheetsSettings());
   }));
+  // After pasting an updated script and deploying a new version: check which version is live now.
+  app.post('/api/settings/sheets/recheck', requireAdmin, wrap(async (req, res) => {
+    const s = readSettings(db);
+    if (!s.apps_script_url) throw bad('Google Sheets is not connected');
+    let ping;
+    try { ping = await appsScriptAdapter(s.apps_script_url, s.apps_script_secret, appsScriptOptions).ping(); } catch (e) { throw bad(e.message); }
+    writeSetting(db, 'apps_script_version', String(ping.version || 1));
+    res.json(sheetsSettings());
+  }));
+  // Bot settings: which Claude model the Start bot button uses.
+  const BOT_MODELS = { '': 'Default (your Claude Code setting)', sonnet: 'Sonnet: faster', opus: 'Opus: most careful', haiku: 'Haiku: fastest, for simple tasks' };
+  app.get('/api/settings/bots', requireAdmin, (req, res) => res.json({ model: readSettings(db).bot_model || '', models: BOT_MODELS }));
+  app.put('/api/settings/bots', requireAdmin, (req, res) => {
+    const m = String((req.body || {}).model || '');
+    if (!(m in BOT_MODELS)) throw bad('Unknown model');
+    writeSetting(db, 'bot_model', m || null);
+    audit('settings', 0, 'bot_model', { model: m }, actorName(req));
+    res.json({ model: m, models: BOT_MODELS });
+  });
   app.delete('/api/settings/sheets', requireAdmin, (req, res) => {
-    for (const k of ['apps_script_url', 'apps_script_secret', 'apps_script_account', 'apps_script_connected_at', 'pending_secret']) writeSetting(db, k, null);
+    for (const k of ['apps_script_url', 'apps_script_secret', 'apps_script_account', 'apps_script_connected_at', 'apps_script_version', 'pending_secret']) writeSetting(db, k, null);
     audit('settings', 0, 'sheets_disconnect', null, actorName(req));
     res.json(sheetsSettings());
   });

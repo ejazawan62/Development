@@ -13,7 +13,10 @@ const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
  * Builds the PowerShell command the new window runs. Pure function, so it can be tested.
  * The token is read from the user's saved BILLING_TOKEN (setx) at launch, never passed through the app.
  */
-function buildBotCommand({ taskId, botName, billingHome, billingUrl }) {
+const MODELS = new Set(['', 'sonnet', 'opus', 'haiku']);
+
+function buildBotCommand({ taskId, botName, billingHome, billingUrl, model = '' }) {
+  if (!MODELS.has(model)) throw new Error('Bad model');
   if (!Number.isInteger(taskId) || taskId < 1) throw new Error('Bad task id');
   if (!SAFE_NAME.test(botName)) throw new Error('Bad bot name');
   const prompt = `You are ${botName}. Use the data-entry skill and start task ${taskId}.`;
@@ -28,17 +31,19 @@ function buildBotCommand({ taskId, botName, billingHome, billingUrl }) {
     "$env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + (Join-Path $env:USERPROFILE '.local\\bin')",
     `if (-not $env:BILLING_TOKEN) { Write-Host ${psQuote('BILLING_TOKEN is not set on this PC. Create a bot token in Billing Control (Settings), then run:  setx BILLING_TOKEN "<token>"')} -ForegroundColor Yellow; return }`,
     `if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { Write-Host ${psQuote('Claude Code is not installed. Run this in PowerShell, then click Start bot again:  irm https://claude.ai/install.ps1 | iex')} -ForegroundColor Yellow; return }`,
+    // Keep the bot's instructions (the data-entry skill) in step with this Billing Control version.
+    "$skills = Join-Path $env:USERPROFILE '.claude\\skills'; New-Item -ItemType Directory -Force $skills | Out-Null; Copy-Item -Recurse -Force (Join-Path $env:BILLING_HOME 'bot\\data-entry') $skills",
     `Write-Host ${psQuote(`Starting ${botName} on task ${taskId}. Keep this window open while it works.`)} -ForegroundColor Cyan`,
-    `claude --chrome ${psQuote(prompt)}`,
+    `claude --chrome${model ? ` --model ${model}` : ''} ${psQuote(prompt)}`,
   ].join('; ');
 }
 
 /** Real launcher (Windows only). Returns { ok, message }. */
-function windowsLauncher({ taskId, botName, billingHome, billingUrl }) {
+function windowsLauncher({ taskId, botName, billingHome, billingUrl, model }) {
   if (process.platform !== 'win32') {
     return { ok: false, message: 'Start bot opens a window on Windows only. On this computer, start the bot by pasting the message into Claude.' };
   }
-  const command = buildBotCommand({ taskId, botName, billingHome, billingUrl });
+  const command = buildBotCommand({ taskId, botName, billingHome, billingUrl, model });
   // -EncodedCommand (UTF-16LE base64) means no shell ever re-parses quotes or special characters:
   // the command line below contains only letters, digits, spaces, '-', '+', '/', '=' and the quoted title.
   const encoded = Buffer.from(command, 'utf16le').toString('base64');

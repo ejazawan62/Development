@@ -12,6 +12,7 @@ const { createApp } = require('../server');
 
 // A stand-in for the deployed Apps Script: same request/response shape.
 const SHEET = { Tab1: [['Last Name', 'First Name', 'DOB', 'Insurance', 'Status', 'Notes'], ['Doe', 'Jan', '01/01/1950', 'Aetna', '', '']] };
+const calls = { record: 0, write: 0 };
 let fake; let fakeUrl; let secretSeen = null; let app; let base; let cookie; let dir;
 
 before(async () => {
@@ -28,7 +29,14 @@ before(async () => {
       const sh = SHEET[r.tab];
       if (!sh) return send({ error: `Tab "${r.tab}" not found` });
       if (r.action === 'read') return send({ values: sh.slice(r.row - 1, r.row - 1 + r.numRows) });
-      if (r.action === 'write') { for (const c of r.cells) sh[c.row - 1][c.col] = c.value; return send({ ok: true }); }
+      if (r.action === 'write') { calls.write += 1; for (const c of r.cells) sh[c.row - 1][c.col] = c.value; return send({ ok: true }); }
+      if (r.action === 'record') {
+        calls.record += 1;
+        const row = sh[r.row - 1];
+        if (r.expect.some((e) => String(row[e.col] ?? '') !== e.value)) return send({ mismatch: true });
+        for (const w of r.writes) row[w.col] = w.mode === 'append' && row[w.col] ? `${row[w.col]} | ${w.value}` : w.value;
+        return send({ ok: true, cells: row });
+      }
       return send({ error: 'unknown action' });
     });
   });
@@ -97,6 +105,7 @@ test('connect, then read and write a sheet through the script', async () => {
   const rec = await call('POST', `/api/tasks/${t.data.id}/rows/2/record`, { outcome: 'held', notes: 'Held — test' });
   assert.equal(rec.status, 200, JSON.stringify(rec.data));
   assert.equal(SHEET.Tab1[1][4], 'Held');
+  assert.deepEqual(calls, { record: 1, write: 0 }, 'one round trip: check and write together');
   assert.equal(SHEET.Tab1[1][5], 'Held — test');
 
   const d = await call('DELETE', '/api/settings/sheets');

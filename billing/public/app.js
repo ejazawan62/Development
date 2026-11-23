@@ -745,6 +745,17 @@ async function viewPayers(practiceId) {
 function sheetsCard(gs, msg) {
   const card = h('section', { class: `card ${gs.mode === 'local' ? 'focus' : ''}`, id: 'sheets' }, h('h2', {}, 'Google Sheets connection'));
   if (gs.mode === 'google') { card.append(h('div', { class: 'success' }, 'Connected with a Google service account (set on the server).')); return card; }
+  if (gs.mode === 'appsscript' && gs.script_version < gs.latest_script_version) {
+    const box = h('textarea', { rows: 6, readonly: true, class: 'mono', 'aria-label': 'Updated script' }, gs.current_script);
+    card.append(h('div', { class: 'error' }, 'Script update available: makes every sheet write about 3x faster (one trip to Google per patient instead of three). Your secret key stays the same.'),
+      h('ol', { class: 'steps' },
+        h('li', {}, 'Click Copy: ', copyBtn(gs.current_script), box),
+        h('li', {}, 'Open your "Billing Control connector" project at ', h('a', { href: 'https://script.google.com/home', target: '_blank', rel: 'noopener noreferrer' }, 'script.google.com'), ', click in the code, press Ctrl+A, then Ctrl+V, and click Save.'),
+        h('li', {}, 'Click Deploy → Manage deployments → the pencil icon → Version: New version → Deploy. The web app address stays the same.'),
+        h('li', {}, h('button', { type: 'button', class: 'primary', onclick: async () => {
+          try { await api('POST', '/api/settings/sheets/recheck'); viewAdmin(); } catch (e) { msg.replaceChildren(errorBox(e)); msg.scrollIntoView(); }
+        } }, 'Check again'))));
+  }
   if (gs.mode === 'appsscript') {
     card.append(h('div', { class: 'success' }, `Connected as ${gs.account || 'your Google account'} since ${gs.connected_at.slice(0, 16).replace('T', ' ')} UTC. Paste any sheet link this account can edit into a Task Setup.`),
       h('div', { class: 'row' }, h('button', { type: 'button', onclick: async () => {
@@ -832,7 +843,10 @@ function portalsCard(portals, practices, msg) {
 }
 
 async function viewAdmin(flash, newToken) {
-  const [users, tokens, gs, portals, practices] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets'), api('GET', '/api/portals'), api('GET', '/api/practices')]);
+  const [users, tokens, gs, portals, practices, botSet] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/tokens'), api('GET', '/api/settings/sheets'), api('GET', '/api/portals'), api('GET', '/api/practices'), api('GET', '/api/settings/bots')]);
+  const modelSel = h('select', { 'aria-label': 'Bot model', onchange: async () => {
+    try { await api('PUT', '/api/settings/bots', { model: modelSel.value }); tokenMsg.replaceChildren(h('div', { class: 'success' }, 'Saved. Bots started from now on use this model.')); } catch (e) { tokenMsg.replaceChildren(errorBox(e)); }
+  } }, Object.entries(botSet.models).map(([k, v]) => h('option', { value: k, selected: k === botSet.model }, v)));
   const msg = h('div');
   const nu = { name: h('input'), username: h('input', { autocapitalize: 'none', spellcheck: 'false', placeholder: 'e.g. nabeel' }), password: h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Blank = create one for me' }), role: h('select', {}, h('option', { value: 'staff' }, 'staff'), h('option', { value: 'admin' }, 'admin')) };
   const userMsg = h('div');
@@ -849,6 +863,8 @@ async function viewAdmin(flash, newToken) {
     h('section', { class: 'card' }, h('h2', {}, 'Bot tokens'),
       h('div', { class: 'muted' }, 'The bot PC uses a token instead of a password. It can only work confirmed tasks: it cannot change Task Setups, payer lists or users.'),
       tokenMsg,
+      h('label', {}, 'Model for bots started with the Start bot button', modelSel),
+      h('div', { class: 'muted' }, 'Sonnet is noticeably faster per step and handles data entry well. Opus is slower but most careful. Already running bots keep their model.'),
       h('div', { class: 'row' }, tokName, h('button', { type: 'button', class: 'primary', onclick: async () => {
         try {
           const t = await api('POST', '/api/tokens', { name: tokName.value });

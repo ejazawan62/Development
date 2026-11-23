@@ -14,8 +14,9 @@ const HELP = `Usage: bot <command> [args]
   show <task>                         Task Setup summary to confirm with the user
   next <task>                         Start (or resume) the next row: prints its card
   row <task> <row>                    Show a row's card again
-  record <task> <row> --outcome <o> [--insurance "<primary>"] [--notes "<note>"] --confirm <k1,k2,...>
-                                      Write the outcome to the sheet now
+  record <task> <row> --outcome <o> [--insurance "<primary>"] [--notes "<note>"] --confirm <k1,k2,...> [--next]
+                                      Write the outcome to the sheet now; with --next also start the next row
+  list <task>                         All rows at once (row, patient, DOB, DOS, insurance, member ID, status)
   alert <task> --kind otp|login_failed|question|error --message "<text>" [--row <n>]
   heartbeat <task>                    Tell the app the bot is still working
   report <task>                       End-of-session report
@@ -38,6 +39,7 @@ function parseArgs(argv) {
     if (a.startsWith('--')) {
       const k = a.slice(2);
       if (k === 'json') opts.json = true;
+      else if (k === 'next') opts.next = true;
       else if (k === 'as') { BOT = argv[i + 1]; i++; }
       else { opts[k] = argv[i + 1]; i++; }
     } else pos.push(a);
@@ -133,6 +135,15 @@ async function main() {
       data = await call('POST', `/api/tasks/${a}/release`);
       if (!opts.json) return console.log(`Task #${a} released by ${BOT}.`);
       break;
+    case 'list': {
+      data = await call('GET', `/api/tasks/${a}/rows`);
+      if (!opts.json) {
+        const lines = data.map((r) => [r.row_no, r.patient, r.dob, r.dos, r.insurance || '-', r.member_id || '-',
+          !r.in_scope ? `skip: ${r.reason}` : r.record ? `done: ${r.record.status_text || r.record.outcome}` : r.blockers && r.blockers.length ? `blocked: ${r.blockers[0]}` : 'to do'].join(' | '));
+        return console.log(['row | patient | DOB | DOS | insurance | member ID | state', ...lines].join('\n'));
+      }
+      break;
+    }
     case 'show':
       data = await call('GET', `/api/tasks/${a}`);
       if (!opts.json) {
@@ -166,11 +177,18 @@ async function main() {
       data = await call('POST', `/api/tasks/${a}/rows/${b}/record`, {
         outcome: opts.outcome, insurance: opts.insurance, notes: opts.notes,
         checklist: String(opts.confirm || '').split(',').map((x) => x.trim()).filter(Boolean),
+        then_next: !!opts.next,
       });
       if (!opts.json) {
         process.stdout.write(inboxText(data));
         console.log(`Row ${data.row_no} written: ${data.written.map((w) => `${w.cell}="${w.value}"`).join(', ') || '(nothing to write)'}`);
-        if (data.stop_and_ask) { console.log(`\nSTOP AND ASK THE USER: ${data.stop_and_ask}`); process.exitCode = 3; }
+        if (data.stop_and_ask) { console.log(`\nSTOP AND ASK THE USER: ${data.stop_and_ask}`); process.exitCode = 3; return; }
+        if (data.next) {
+          if (data.next.error) { console.log(`\nNEXT: ${data.next.error}`); process.stdout.write(inboxText({ inbox: data.next.inbox })); if (data.next.status === 423) process.exitCode = 4; return; }
+          console.log('');
+          process.stdout.write(inboxText(data.next));
+          console.log(data.next.done ? `${data.next.message} (Task released.)` : `[${BOT} · task #${a}]\n${printCard(data.next)}`);
+        }
         return;
       }
       break;
