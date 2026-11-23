@@ -173,3 +173,14 @@ test('Start bot: a second click while the first bot is starting is refused', asy
   assert.deepEqual(launched, ['Bot 1']);
   srv.close(); fs.rmSync(d, { recursive: true, force: true });
 });
+
+test('Task Setup suggestions come from earlier tasks', async () => {
+  const t = await call('POST', '/api/tasks', { task_type: 'demo' });
+  await call('PUT', `/api/tasks/${t.data.id}`, { practice_name: 'Lakeview Wound Care', oa_account: 'Lakeview OA', provider_name: 'Dr. Haddad', provider_npi: '1234567893', sheet_link: `https://docs.google.com/spreadsheets/d/${ID}/edit` });
+  const s = (await call('GET', '/api/suggestions')).data;
+  assert.ok(s.practice_name.includes('Lakeview Wound Care'));
+  assert.ok(s.oa_account.includes('Lakeview OA'));
+  assert.equal(s.oa_for_practice['Lakeview Wound Care'], 'Lakeview OA');
+  assert.equal(s.npi_for_provider['Dr. Haddad'], '1234567893');
+  assert.ok(s.sheet_link.some((l) => l.includes(ID)));
+});

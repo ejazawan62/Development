@@ -351,12 +351,23 @@ async function viewSetup(id) {
   const t = await api('GET', `/api/tasks/${id}`);
   if (t.state !== 'setup') { location.hash = `#/tasks/${id}`; return; }
   const f = {};
-  const input = (name, attrs = {}) => { f[name] = h('input', { value: t[name] == null ? '' : t[name], ...attrs }); return f[name]; };
+  // Suggestions from earlier tasks (browser shows them when the field is clicked or typed in).
+  const sugg = await api('GET', '/api/suggestions').catch(() => ({}));
+  const lists = h('div', { hidden: true });
+  const listFor = (key) => {
+    const vals = sugg[key] || [];
+    if (!vals.length) return null;
+    const lid = `sugg-${key}`;
+    if (!lists.querySelector(`#${lid}`)) lists.append(h('datalist', { id: lid }, vals.map((v) => h('option', { value: v }))));
+    return lid;
+  };
+  const input = (name, attrs = {}) => { f[name] = h('input', { value: t[name] == null ? '' : t[name], list: listFor(name), autocomplete: 'off', ...attrs }); return f[name]; };
   const typeRadios = Object.entries(TYPE).map(([k, v]) => h('label', { class: 'inline' }, h('input', { type: 'radio', name: 'tt', value: k, checked: t.task_type === k }), v));
   const facilities = h('div', { class: 'facility' });
   const addFacility = (fa = { name: '', address: '' }) => {
-    const n = h('input', { value: fa.name, 'aria-label': 'Facility name', placeholder: 'Facility name' });
-    const a = h('input', { value: fa.address, 'aria-label': 'Facility address', placeholder: 'Street, City, ST ZIP' });
+    const n = h('input', { value: fa.name, 'aria-label': 'Facility name', placeholder: 'Facility name', list: listFor('facility_name'), autocomplete: 'off' });
+    const a = h('input', { value: fa.address, 'aria-label': 'Facility address', placeholder: 'Street, City, ST ZIP', list: listFor('facility_address'), autocomplete: 'off' });
+    n.addEventListener('change', () => { const addr = (sugg.address_for_facility || {})[n.value.trim()]; if (addr && !a.value) { a.value = addr; scheduleSave(); } });
     const rm = h('button', { type: 'button', class: 'small', onclick: () => { n.remove(); a.remove(); rm.remove(); } }, 'Remove');
     facilities.append(n, a, rm);
   };
@@ -497,6 +508,13 @@ async function viewSetup(id) {
           h('label', {}, 'Special instructions for this task', special))),
       checkOut));
   checkOut.append(confirmCard);
+  $app.append(lists);
+  const fillIfEmpty = (from, to, map) => f[from].addEventListener('change', () => {
+    const v = (sugg[map] || {})[f[from].value.trim()];
+    if (v && !f[to].value) { f[to].value = v; f[to].dispatchEvent(new Event('input', { bubbles: true })); toast(`Filled in from an earlier task: ${v}`); }
+  });
+  fillIfEmpty('practice_name', 'oa_account', 'oa_for_practice');
+  fillIfEmpty('provider_name', 'provider_npi', 'npi_for_provider');
   lastSaved = JSON.stringify(collect());
   refreshProblems();
 }

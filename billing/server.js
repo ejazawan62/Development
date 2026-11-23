@@ -834,6 +834,33 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
 
   // ---------- practices & payer lists ----------
   app.get('/api/practices', requireUser, (req, res) => res.json(q.all('SELECT * FROM practices ORDER BY name')));
+  /** Values typed in earlier Task Setups, newest first, for the form's suggestion lists. */
+  app.get('/api/suggestions', requireUser, (req, res) => {
+    const tasks = q.all('SELECT * FROM tasks ORDER BY id DESC LIMIT 500').map(hydrate);
+    const uniq = (vals) => [...new Set(vals.map((v) => String(v || '').trim()).filter(Boolean))].slice(0, 50);
+    const pick = (f) => uniq(tasks.map((x) => x[f]));
+    const firstFor = (key, f, g) => {
+      const m = {};
+      for (const x of tasks) { const k = String(x[key] || '').trim(); if (k && x[f] && !m[k]) m[k] = g ? g(x) : x[f]; }
+      return m;
+    };
+    res.json({
+      practice_name: uniq([...pick('practice_name'), ...q.all('SELECT name FROM practices ORDER BY name').map((r) => r.name)]),
+      oa_account: pick('oa_account'),
+      provider_name: pick('provider_name'),
+      provider_npi: pick('provider_npi'),
+      billing_npi: pick('billing_npi'),
+      billing_tax_id: pick('billing_tax_id'),
+      sheet_link: pick('sheet_link'),
+      tab_name: pick('tab_name'),
+      facility_name: uniq(tasks.flatMap((x) => x.facilities.map((f) => f.name))),
+      facility_address: uniq(tasks.flatMap((x) => x.facilities.map((f) => f.address))),
+      // Pairs, used to fill a related empty field: practice → its Office Ally account, provider → NPI, facility → address.
+      oa_for_practice: firstFor('practice_name', 'oa_account'),
+      npi_for_provider: firstFor('provider_name', 'provider_npi'),
+      address_for_facility: Object.fromEntries(tasks.flatMap((x) => x.facilities.map((f) => [f.name, f.address])).filter(([n, a]) => n && a).reverse()),
+    });
+  });
   app.get('/api/practices/:id/payers', requireAny, (req, res) => res.json(payersFor(Number(req.params.id))));
 
   function payerBody(b) {
