@@ -160,6 +160,7 @@ test('Start bot: a second click while the first bot is starting is refused', asy
   const lr = await fetch(b2 + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'a@example.com', password: 'test-password-123' }) });
   const ck = lr.headers.get('set-cookie').split(';')[0];
   const c2 = async (m, p, body) => { const r = await fetch(b2 + p, { method: m, headers: { cookie: ck, 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, data: await r.json() }; };
+  await c2('PUT', '/api/settings/bots', { run_mode: 'window' });
   const t = await c2('POST', '/api/tasks', { task_type: 'demo' });
   await c2('PUT', `/api/tasks/${t.data.id}`, { practice_name: 'P', oa_account: 'OA', sheet_link: `https://docs.google.com/spreadsheets/d/${ID}/edit`, portals: ['Office Ally'] });
   await c2('POST', `/api/tasks/${t.data.id}/check-sheet`);
@@ -198,4 +199,64 @@ test('"Also work rows that already have a status" brings finished rows back', as
   assert.equal((await call('POST', `/api/tasks/${t.data.id}/confirm`)).status, 200);
   rows = (await call('GET', `/api/tasks/${t.data.id}/rows`)).data;
   assert.equal(rows.find((r) => r.row_no === 2).in_scope, true);
+});
+
+test('background bot: no window, live activity from its output, refuses a second start, can be stopped', async () => {
+  const { createApp } = require('../server');
+  const { open, hashPassword } = require('../lib/db');
+  const { localAdapter } = require('../lib/sheets');
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'billing-bg-'));
+  const f = path.join(d, 's.json');
+  fs.writeFileSync(f, fs.readFileSync(file));
+  const db2 = open(path.join(d, 'b.db'));
+  db2.prepare('INSERT INTO users (name, email, password_hash, role) VALUES (?,?,?,?)').run('A', 'a@example.com', hashPassword('test-password-123'), 'admin');
+  let child;
+  const app2 = createApp({ db: db2, sheets: localAdapter(f), launcher: (o) => {
+    assert.equal(o.headless, true, 'background is the default');
+    child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), pid: 1, exitCode: null, kill() { this.exitCode = 0; this.emit('exit', 0); } });
+    return { ok: true, child, message: 'started' };
+  } });
+  const srv = await new Promise((r) => { const s = app2.listen(0, '127.0.0.1', () => r(s)); });
+  try {
+    const b2 = `http://127.0.0.1:${srv.address().port}`;
+    const lr = await fetch(b2 + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'a@example.com', password: 'test-password-123' }) });
+    const ck = lr.headers.get('set-cookie').split(';')[0];
+    const c2 = async (m, p, body) => { const r = await fetch(b2 + p, { method: m, headers: { cookie: ck, 'content-type': 'application/json', 'x-requested-with': 'fetch' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, data: await r.json() }; };
+    const t = await c2('POST', '/api/tasks', { task_type: 'demo' });
+    await c2('PUT', `/api/tasks/${t.data.id}`, { practice_name: 'P', oa_account: 'OA', sheet_link: `https://docs.google.com/spreadsheets/d/${ID}/edit`, portals: ['Office Ally'] });
+    await c2('POST', `/api/tasks/${t.data.id}/check-sheet`);
+    await c2('POST', `/api/tasks/${t.data.id}/confirm`);
+    const s = await c2('POST', `/api/tasks/${t.data.id}/start-bot`);
+    assert.equal(s.status, 200, JSON.stringify(s.data));
+    assert.equal(s.data.background, true);
+    child.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__claude-in-chrome__navigate', input: { url: 'https://example.com/patients' } }, { type: 'text', text: 'Searching row 2' }] } }) + '\n');
+    await new Promise((r) => setTimeout(r, 50));
+    const a = (await c2('GET', `/api/tasks/${t.data.id}/activity`)).data;
+    assert.ok(a.running);
+    assert.ok(a.items.some((x) => /Browser: navigate https:\/\/example.com\/patients/.test(x.text)));
+    assert.ok(a.items.some((x) => x.text === 'Searching row 2'));
+    assert.equal((await c2('POST', `/api/tasks/${t.data.id}/start-bot`)).status, 422, 'no second bot on the same task');
+    child.kill();
+    await new Promise((r) => setTimeout(r, 50));
+    const after = (await c2('GET', `/api/tasks/${t.data.id}/activity`)).data;
+    assert.equal(after.running, null);
+    assert.ok(after.items.some((x) => /stopped/.test(x.text)));
+  } finally {
+    srv.close(); fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test('provider: not asked for demo tasks, required for claim tasks', async () => {
+  const demo = await call('POST', '/api/tasks', { task_type: 'demo' });
+  let p = (await call('GET', `/api/tasks/${demo.data.id}`)).data.problems;
+  assert.ok(!p.some((x) => /Provider/.test(x)), JSON.stringify(p));
+  const claim = await call('POST', '/api/tasks', { task_type: 'claim' });
+  p = (await call('GET', `/api/tasks/${claim.data.id}`)).data.problems;
+  assert.ok(p.some((x) => /Provider name is blank/.test(x)));
+  assert.ok(p.some((x) => /Provider NPI is missing/.test(x)));
+  await call('PUT', `/api/tasks/${claim.data.id}`, { provider_name: 'Dr A', provider_npi: '1234567893' });
+  p = (await call('GET', `/api/tasks/${claim.data.id}`)).data.problems;
+  assert.ok(!p.some((x) => /Provider/.test(x)));
 });

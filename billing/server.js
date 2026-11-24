@@ -6,7 +6,7 @@ const express = require('express');
 const { open, tx, hashPassword, verifyPassword, sha256, readSettings, writeSetting } = require('./lib/db');
 const { createSheets, appsScriptAdapter, colToLetter, letterToCol, spreadsheetIdFromLink } = require('./lib/sheets');
 const { appsScriptSource, SCRIPT_VERSION } = require('./lib/apps-script');
-const { windowsLauncher } = require('./lib/launcher');
+const { windowsLauncher, stopProcessTree } = require('./lib/launcher');
 const { createUpdater } = require('./lib/updater');
 const fs = require('node:fs');
 const { FIELDS, guessMapping, resolveColumn, detectColumn, missingRequired } = require('./lib/mapping');
@@ -170,11 +170,14 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     const need = (v, label) => { if (v == null || String(v).trim() === '') p.push(`${label} is blank`); };
     need(t.task_type, 'Task type'); need(t.practice_name, 'Practice name');
     need(t.oa_account, 'Office Ally account / practice'); need(t.sheet_link, 'Google Sheet link');
-    if (t.provider_npi && !checks.isValidNpi(t.provider_npi)) p.push('Provider NPI fails the NPI check digit (or leave it blank to use Office Ally\'s provider)');
-    if (t.provider_npi && !t.provider_name) p.push('Add the provider name for this NPI (or leave both blank)');
+    if (t.task_type !== 'demo') {
+      // Claim creation and submission are billed under one provider: required.
+      need(t.provider_name, 'Provider name');
+      if (!checks.isValidNpi(t.provider_npi)) p.push('Provider NPI is missing or fails the NPI check digit');
+    }
     if (t.billing_npi && !checks.isValidNpi(t.billing_npi)) p.push('Billing/group NPI fails the NPI check digit');
     if (t.billing_tax_id && !/^\d{2}-?\d{7}$/.test(t.billing_tax_id)) p.push('Billing Tax ID must be 9 digits');
-    t.facilities.forEach((f, i) => { if (!f.name || !f.address) p.push(`New location ${i + 1} needs both a name and an address`); });
+    if (t.task_type !== 'demo') t.facilities.forEach((f, i) => { if (!f.name || !f.address) p.push(`New location ${i + 1} needs both a name and an address`); });
     if (!spreadsheetIdFromLink(t.sheet_link)) p.push('Google Sheet link is not a valid sheet link');
     if (t.row_from != null && !(t.row_from >= 2)) p.push('Rows to work: "from" must be 2 or more (or blank for row 2)');
     if (t.row_to != null && !(t.row_to >= (t.row_from || 2))) p.push('Rows to work: "to" can\'t be before "from" (or leave it blank for the last row)');
@@ -531,12 +534,92 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     res.json({ ok: true });
   });
 
+  // ---------- background bots: live activity and stop ----------
+  const RUNNING = new Map(); // taskId -> { botName, child, started }
+  const ACTIVITY = new Map(); // taskId -> [{ id, at, text, kind }]
+  let activitySeq = 0;
+  function activity(taskId, text, kind = 'step') {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+    if (!clean) return;
+    const list = ACTIVITY.get(taskId) || [];
+    list.push({ id: ++activitySeq, at: new Date().toISOString(), text: clean, kind });
+    if (list.length > 400) list.splice(0, list.length - 400);
+    ACTIVITY.set(taskId, list);
+    chat.emit(`activity:${taskId}`);
+  }
+  /** Turns one line of Claude Code's stream-json output into a short, readable activity line. */
+  function describeEvent(ev) {
+    if (!ev || typeof ev !== 'object') return [];
+    if (ev.type === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
+      return ev.message.content.map((c) => {
+        if (c.type === 'text') return { text: c.text, kind: 'say' };
+        if (c.type === 'tool_use') {
+          const name = String(c.name || '');
+          const i = c.input || {};
+          if (name.startsWith('mcp__claude-in-chrome__')) {
+            const what = name.split('__').pop().replace(/_/g, ' ');
+            return { text: `Browser: ${what}${i.url ? ` ${i.url}` : ''}${i.action ? ` (${i.action})` : ''}`, kind: 'step' };
+          }
+          if (name === 'Bash' || name === 'PowerShell') {
+            const cmd = String(i.command || '').replace(/^.*bot\.js"?\s*/, 'bot ').replace(/--confirm\s+\S+/, '').slice(0, 160);
+            return { text: `Billing Control: ${cmd}`, kind: 'step' };
+          }
+          if (name === 'Skill') return { text: `Loading instructions: ${i.skill || i.name || ''}`, kind: 'step' };
+          return { text: `Tool: ${name}`, kind: 'step' };
+        }
+        return null;
+      }).filter(Boolean);
+    }
+    if (ev.type === 'result') return [{ text: ev.is_error ? `Stopped with a problem: ${ev.result || ev.subtype}` : `Finished: ${ev.result || 'done'}`, kind: ev.is_error ? 'error' : 'done' }];
+    if (ev.type === 'system' && ev.subtype === 'init') return [{ text: `Session started${ev.model ? ` (${ev.model})` : ''}`, kind: 'step' }];
+    return [];
+  }
+  function watchBot(taskId, botName, child) {
+    RUNNING.set(taskId, { botName, child, started: Date.now() });
+    activity(taskId, `${botName} starting in the background…`, 'step');
+    let buf = '';
+    const onLine = (line) => {
+      if (!line.trim()) return;
+      let ev = null;
+      try { ev = JSON.parse(line); } catch { activity(taskId, line, 'step'); return; }
+      for (const d of describeEvent(ev)) activity(taskId, d.text, d.kind);
+    };
+    if (child.stdout) child.stdout.on('data', (d) => { buf += d.toString(); const lines = buf.split(/\r?\n/); buf = lines.pop(); lines.forEach(onLine); });
+    if (child.stderr) child.stderr.on('data', (d) => String(d).split(/\r?\n/).forEach((l) => l.trim() && activity(taskId, l, 'error')));
+    child.on('exit', (code) => {
+      if (buf) onLine(buf);
+      RUNNING.delete(taskId);
+      q.run('UPDATE tasks SET launch_bot = NULL, launched_at = NULL WHERE id = ?', taskId);
+      const t = q.get('SELECT bot_name FROM tasks WHERE id = ?', taskId);
+      if (t && t.bot_name && t.bot_name.endsWith(`/${botName}`)) releaseTask(taskId);
+      activity(taskId, `${botName} stopped${code ? ` (code ${code})` : ''}.`, code ? 'error' : 'done');
+      postMessage(taskId, 'system', botName, `${botName} stopped${code ? ' with a problem: see Activity' : ''}.`, 'stop');
+    });
+    child.on('error', (e) => activity(taskId, `Could not start: ${e.message}`, 'error'));
+  }
+  app.get('/api/tasks/:id/activity', requireUser, (req, res) => {
+    const t = getTask(req.params.id);
+    const after = Number(req.query.after) || 0;
+    const r = RUNNING.get(t.id);
+    res.json({ running: r ? { bot: r.botName, since: new Date(r.started).toISOString() } : null, items: (ACTIVITY.get(t.id) || []).filter((x) => x.id > after) });
+  });
+  app.post('/api/tasks/:id/stop-bot', requireUser, (req, res) => {
+    const t = getTask(req.params.id);
+    const r = RUNNING.get(t.id);
+    if (!r) throw bad('No background bot is running on this task. A bot in a window is stopped by closing its window.');
+    stopProcessTree(r.child);
+    activity(t.id, `${req.user.name} stopped ${r.botName}.`, 'done');
+    audit('task', t.id, 'stop_bot', { bot: r.botName }, actorName(req));
+    res.json({ ok: true });
+  });
+
   /** "Start bot" button: opens a Claude Code window on this PC with the next free bot name. */
   app.post('/api/tasks/:id/start-bot', requireUser, (req, res) => {
     const t = getTask(req.params.id);
     if (t.state !== 'confirmed') throw bad('Confirm the Task Setup first.');
     if (t.bot_paused) throw bad('This task is paused. Resolve or resume it first.');
     if (t.bot_name && isLive(t)) throw bad(`${t.bot_name.split('/').pop()} is already working this task.`);
+    if (RUNNING.has(t.id)) throw bad(`${RUNNING.get(t.id).botName} is already running in the background on this task.`);
     // A bot that was started but hasn't begun yet (waiting for its "yes") still counts, so a second click
     // can't open a duplicate window. The lock lasts LAUNCH_LOCK_MINUTES.
     const recentLaunch = (x) => x.launch_bot && x.launched_at && Date.now() - Date.parse(x.launched_at.replace(' ', 'T') + 'Z') < LAUNCH_LOCK_MINUTES * 60000;
@@ -547,15 +630,25 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
     const busy = new Set([
       ...all.filter((x) => x.bot_name && isLive(x)).map((x) => x.bot_name.split('/').pop()),
       ...all.filter((x) => recentLaunch(x) && !(x.id === t.id && req.body && req.body.retry)).map((x) => x.launch_bot),
+      ...[...RUNNING.values()].map((x) => x.botName),
     ]);
     let n = 1;
     while (busy.has(`Bot ${n}`)) n++;
     const botName = `Bot ${n}`;
-    const r = launcher({ taskId: t.id, botName, billingHome: __dirname, billingUrl: `http://127.0.0.1:${publicPort}`, model: readSettings(db).bot_model || '' });
-    if (r.ok) q.run("UPDATE tasks SET launch_bot = ?, launched_at = datetime('now') WHERE id = ?", botName, t.id);
-    audit('task', t.id, 'start_bot', { bot: botName, ok: r.ok }, actorName(req));
-    if (r.ok) postMessage(t.id, 'system', req.user.name, `${req.user.name} started ${botName}. It will show the Task Setup in its window and wait for a "yes".`, 'start');
-    res.status(r.ok ? 200 : 501).json({ ...r, bot: botName, prompt: `You are ${botName}. Use the data-entry skill and start task ${t.id}.` });
+    if (RUNNING.has(t.id)) throw bad(`${RUNNING.get(t.id).botName} is already running in the background on this task.`);
+    const headless = (readSettings(db).bot_run_mode || 'background') === 'background';
+    const confirmer = t.confirmed_by ? (q.get('SELECT name FROM users WHERE id = ?', t.confirmed_by) || {}).name : '';
+    const r = launcher({ taskId: t.id, botName, billingHome: __dirname, billingUrl: `http://127.0.0.1:${publicPort}`, model: readSettings(db).bot_model || '', headless, confirmedBy: confirmer || req.user.name });
+    if (r.ok && !headless) q.run("UPDATE tasks SET launch_bot = ?, launched_at = datetime('now') WHERE id = ?", botName, t.id);
+    audit('task', t.id, 'start_bot', { bot: botName, ok: r.ok, headless }, actorName(req));
+    if (r.ok && r.child) watchBot(t.id, botName, r.child);
+    if (r.ok) {
+      postMessage(t.id, 'system', req.user.name, headless
+        ? `${req.user.name} started ${botName} in the background. Follow it here; it will ask its questions in this chat.`
+        : `${req.user.name} started ${botName}. It will show the Task Setup in its window and wait for a "yes".`, 'start');
+    }
+    const { child, ...pub } = r; // eslint-disable-line no-unused-vars
+    res.status(r.ok ? 200 : 501).json({ ...pub, bot: botName, background: headless, prompt: `You are ${botName}. Use the data-entry skill and start task ${t.id}.` });
   });
 
   /** For a bot: confirmed tasks it could start now, and why the others can't. */
@@ -1138,13 +1231,21 @@ function createApp({ db, sheets, log = () => {}, appsScriptOptions = {}, launche
   }));
   // Bot settings: which Claude model the Start bot button uses.
   const BOT_MODELS = { '': 'Default (your Claude Code setting)', sonnet: 'Sonnet: faster', opus: 'Opus: most careful', haiku: 'Haiku: fastest, for simple tasks' };
-  app.get('/api/settings/bots', requireAdmin, (req, res) => res.json({ model: readSettings(db).bot_model || '', models: BOT_MODELS }));
+  const botSettings = () => ({ model: readSettings(db).bot_model || '', models: BOT_MODELS, run_mode: readSettings(db).bot_run_mode || 'background' });
+  app.get('/api/settings/bots', requireAdmin, (req, res) => res.json(botSettings()));
   app.put('/api/settings/bots', requireAdmin, (req, res) => {
-    const m = String((req.body || {}).model || '');
-    if (!(m in BOT_MODELS)) throw bad('Unknown model');
-    writeSetting(db, 'bot_model', m || null);
-    audit('settings', 0, 'bot_model', { model: m }, actorName(req));
-    res.json({ model: m, models: BOT_MODELS });
+    const b = req.body || {};
+    if (b.model != null) {
+      const m = String(b.model || '');
+      if (!(m in BOT_MODELS)) throw bad('Unknown model');
+      writeSetting(db, 'bot_model', m || null);
+    }
+    if (b.run_mode != null) {
+      if (!['background', 'window'].includes(b.run_mode)) throw bad('Run mode must be background or window');
+      writeSetting(db, 'bot_run_mode', b.run_mode);
+    }
+    audit('settings', 0, 'bot_settings', b, actorName(req));
+    res.json(botSettings());
   });
   app.delete('/api/settings/sheets', requireAdmin, (req, res) => {
     for (const k of ['apps_script_url', 'apps_script_secret', 'apps_script_account', 'apps_script_connected_at', 'apps_script_version', 'pending_secret']) writeSetting(db, k, null);

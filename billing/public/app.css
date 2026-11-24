@@ -247,16 +247,15 @@ button.primary.busy::after, button.danger.busy::after { border-color: var(--bran
 .toast.error { background: var(--warn); color: #fff; }
 .toast.gone { opacity: 0; transform: translateY(8px); }
 
-/* ---------- portal shown inside the page ---------- */
-.portal-pair { display: inline-flex; }
-.portal-pair button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.portal-pair button:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; padding-left: 8px; padding-right: 8px; }
-.embed-panel { position: fixed; top: 64px; right: 0; bottom: 0; width: 50vw; z-index: 20; background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; }
-.embed-panel > header { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); flex-wrap: wrap; }
-.embed-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
-.embed-tabs button.on { background: var(--brand-soft); border-color: var(--brand-line); color: var(--ok-ink); }
-.embed-note { font-size: 12px; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--line-soft); }
-.embed-panel iframe { flex: 1; width: 100%; border: 0; background: #fff; }
-body.with-embed main { margin-right: 50vw; max-width: none; }
-body.with-embed .chat { right: calc(50vw + 20px); }
-@media (max-width: 900px) { .embed-panel { width: 100vw; top: 0; } body.with-embed main { margin-right: 0; } }
+.chat-tabs { padding: 8px 12px 0; }
+.act-list { gap: 4px; font-size: 13px; }
+.act { color: var(--ink); line-height: 1.4; }
+.act .act-time { color: var(--muted); font-family: var(--mono); font-size: 11.5px; }
+.act.say { background: var(--chip); border-radius: 8px; padding: 6px 8px; }
+.act.error { color: var(--warn); }
+.act.done { color: var(--ok-ink); font-weight: 600; }
+
+/* Side-by-side window: compact layout for a half-width window */
+@media (max-width: 1100px) { main { padding-left: 18px; padding-right: 18px; } header.top .who .name { display: none; } }
+
+[hidden] { display: none !important; }

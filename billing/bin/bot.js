@@ -174,9 +174,10 @@ async function main() {
         return console.log([
           `Task #${data.id} · ${data.task_type}`,
           `Practice:          ${data.practice_name}`,
-          `Provider:          ${data.provider_name ? `${data.provider_name} · NPI ${data.provider_npi} (locked)` : 'from Office Ally (match each sheet row)'}`,
-          `Billing NPI / TIN: ${data.billing_npi || 'from Office Ally'} / ${data.billing_tax_id || 'from Office Ally'}`,
-          `New locations:     ${data.facilities.map((f) => `${f.name} — ${f.address}`).join(' | ') || 'none (use Office Ally locations)'}`,
+          ...(data.task_type === 'demo' ? [] : [
+            `Provider:          ${data.provider_name ? `${data.provider_name} · NPI ${data.provider_npi} (only this provider)` : 'from Office Ally (match each sheet row)'}`,
+            `Billing NPI / TIN: ${data.billing_npi || 'as set up in Office Ally'} / ${data.billing_tax_id || 'as set up in Office Ally'}`,
+            `New locations:     ${data.facilities.map((f) => `${f.name} — ${f.address}`).join(' | ') || 'none (use Office Ally locations)'}`]),
           `Office Ally:       ${data.oa_account}`,
           `Sheet / tab:       ${data.sheet_link} › ${data.tab_name}`,
           `Columns:           Status ${data.status_col} · Insurance ${data.insurance_col} · Notes ${data.notes_col}`,

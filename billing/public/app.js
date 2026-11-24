@@ -149,10 +149,24 @@ function mountChat(taskId) {
   const badge = h('span', { class: 'chat-badge', hidden: true });
   const toggle = h('button', { type: 'button', class: 'chat-toggle primary', 'aria-expanded': 'false' }, 'Chat with bot', badge);
   const err = h('div');
+  // Activity: what a background bot is doing right now, step by step.
+  const actList = h('div', { class: 'chat-list act-list', role: 'log', 'aria-live': 'polite', hidden: true });
+  let actLast = 0;
+  const stopBtn = h('button', { type: 'button', class: 'small danger', hidden: true, onclick: async () => {
+    if (!confirm('Stop the bot now? It stops right away; a patient it was in the middle of may need checking in Office Ally.')) return;
+    await api('POST', `/api/tasks/${taskId}/stop-bot`); toast('Bot stopped'); poll();
+  } }, 'Stop bot');
+  const tabBtn = (label, show) => h('button', { type: 'button', class: 'chip', onclick: (ev) => {
+    list.hidden = show !== 'chat'; actList.hidden = show !== 'act';
+    ev.target.parentNode.querySelectorAll('.chip').forEach((b) => b.classList.toggle('on', b === ev.target));
+    const l = show === 'act' ? actList : list; l.scrollTop = l.scrollHeight;
+  } }, label);
+  const tabs = h('div', { class: 'chips chat-tabs' }, tabBtn('Chat', 'chat'), tabBtn('Activity', 'act'));
+  tabs.firstChild.classList.add('on');
   const panel = h('section', { class: 'chat-panel', 'aria-label': 'Chat with the bot', hidden: true },
-    h('header', {}, h('div', {}, h('strong', {}, `Task #${taskId} chat`), status), h('div', { class: 'row' }, pauseBtn,
+    h('header', {}, h('div', {}, h('strong', {}, `Task #${taskId}`), status), h('div', { class: 'row' }, stopBtn, pauseBtn,
       h('button', { type: 'button', class: 'small', 'aria-label': 'Close chat', onclick: () => setOpen(false) }, '✕'))),
-    list, err,
+    tabs, list, actList, err,
     h('form', { class: 'chat-form', onsubmit: (ev) => { ev.preventDefault(); send(); } }, input, h('button', { type: 'submit', class: 'primary' }, 'Send')));
   const el = h('div', { class: 'chat' }, panel, toggle);
   document.body.append(el);
@@ -173,6 +187,7 @@ function mountChat(taskId) {
     return h('div', { class: `chat-msg ${m.sender} ${mine ? 'mine' : ''} ${m.kind.startsWith('alert') ? 'alert-msg' : ''}` },
       h('div', { class: 'chat-meta' }, `${m.sender === 'bot' ? '🤖 ' : ''}${m.author} · ${time}`), h('div', { class: 'chat-body' }, m.body));
   }
+  const state_paused_text = (state) => state.paused;
   function render(state) {
     CHAT.paused = state.paused;
     CHAT.alerts = state.alerts || [];
@@ -195,6 +210,18 @@ function mountChat(taskId) {
       else { const empty = list.querySelector('.chat-empty'); if (empty && list.children.length > 1) empty.remove(); }
       if (atBottom || r.messages.some((m) => m.sender === 'user')) list.scrollTop = list.scrollHeight;
       render(r);
+      const a = await api('GET', `/api/tasks/${taskId}/activity?after=${actLast}`);
+      if (!CHAT) return;
+      const actBottom = actList.scrollHeight - actList.scrollTop - actList.clientHeight < 40;
+      for (const x of a.items) {
+        actList.append(h('div', { class: `act ${x.kind}` }, h('span', { class: 'act-time' }, x.at.slice(11, 19)), ' ', x.text));
+        actLast = x.id;
+      }
+      if (!actList.children.length) actList.append(h('div', { class: 'chat-empty' }, 'Nothing yet. When a bot runs in the background, every step it takes shows here.'));
+      else { const e = actList.querySelector('.chat-empty'); if (e && actList.children.length > 1) e.remove(); }
+      if (actBottom) actList.scrollTop = actList.scrollHeight;
+      stopBtn.hidden = !a.running;
+      if (a.running && !state_paused_text(r)) status.textContent = ` · ${a.running.bot} working in the background`;
       err.replaceChildren();
     } catch (e) { if (CHAT) err.replaceChildren(errorBox(e)); }
   }
@@ -236,42 +263,39 @@ async function deleteTask(t, after) {
 }
 
 // ---------- portals ----------
+// Portals open in ONE window docked to the right half of the screen, reused for every portal.
+let PORTAL_WIN = null;
 function openPortal(url) {
-  // Opens the portal in its own window on the right half of the screen, so the app stays visible on the left.
-  const w = Math.floor(screen.availWidth / 2);
-  const feat = `popup=yes,noopener=yes,width=${w},height=${screen.availHeight},left=${(screen.availLeft || 0) + w},top=${screen.availTop || 0}`;
-  window.open(url, '_blank', feat);
+  const half = Math.floor(screen.availWidth / 2);
+  const left = (screen.availLeft || 0) + half;
+  const top = screen.availTop || 0;
+  if (PORTAL_WIN && !PORTAL_WIN.closed) {
+    try { PORTAL_WIN.location.href = url; PORTAL_WIN.focus(); return; } catch { /* fall through and reopen */ }
+  }
+  const win = window.open('about:blank', 'bc-portal', `popup=yes,width=${half},height=${screen.availHeight},left=${left},top=${top}`);
+  if (!win) { toast('Chrome blocked the portal window. Click the pop-up icon in the address bar and choose "Always allow pop-ups" for Billing Control.', 'error'); return; }
+  try { win.opener = null; } catch { /* ignore */ }
+  try { win.moveTo(left, top); win.resizeTo(half, screen.availHeight); } catch { /* ignore */ }
+  win.location.href = url;
+  PORTAL_WIN = win;
 }
-// ---------- portals shown inside Billing Control (when the portal allows it) ----------
-let EMBED = null;
-function closeEmbed() {
-  if (!EMBED) return;
-  EMBED.el.remove();
-  document.body.classList.remove('with-embed');
-  EMBED = null;
+/** Re-opens Billing Control as a clean window on the left half; portals then fill the right half. */
+function sideBySideMode() {
+  const half = Math.floor(screen.availWidth / 2);
+  const win = window.open(location.href, 'bc-main', `popup=yes,width=${half},height=${screen.availHeight},left=${screen.availLeft || 0},top=${screen.availTop || 0}`);
+  if (!win) { toast('Chrome blocked the window. Click the pop-up icon in the address bar and choose "Always allow pop-ups" for Billing Control.', 'error'); return; }
+  toast('Billing Control opened on the left. Portals open on the right.');
 }
-function openEmbed(links, portal) {
-  closeEmbed();
-  const frame = h('iframe', { title: portal.name, src: portal.url, referrerpolicy: 'no-referrer' });
-  const tabs = h('div', { class: 'embed-tabs', role: 'tablist' }, links.map((p) => h('button', { type: 'button', role: 'tab', class: `small ${p.id === portal.id ? 'on' : ''}`, 'aria-selected': String(p.id === portal.id), onclick: () => openEmbed(links, p) }, p.name)));
-  const el = h('section', { class: 'embed-panel', 'aria-label': `${portal.name} inside Billing Control` },
-    h('header', {}, tabs, h('div', { class: 'row' },
-      h('button', { type: 'button', class: 'small', title: 'Open in its own window instead', onclick: () => openPortal(portal.url) }, 'Open in window ↗'),
-      h('button', { type: 'button', class: 'small', 'aria-label': 'Close', onclick: closeEmbed }, '✕'))),
-    h('div', { class: 'embed-note' }, `Blank or "refused to connect" below? Then ${portal.name} doesn't allow being shown inside other sites (a security setting on their side). Use "Open in window" instead. If it does show, its login may still not stick here, because Chrome blocks portal cookies inside other sites.`),
-    frame);
-  document.body.append(el);
-  document.body.classList.add('with-embed');
-  EMBED = { el };
-}
+const inSideBySide = () => window.name === 'bc-main';
+
 function portalBar(links) {
   if (!links || !links.length) return null;
   return h('div', { class: 'portalbar', role: 'group', 'aria-label': 'Portals' },
     h('span', { class: 'muted' }, icon('portal'), 'Portals'),
-    links.map((p) => h('span', { class: 'portal-pair' },
-      h('button', { type: 'button', class: 'small', title: `Show ${p.name} inside Billing Control`, onclick: () => openEmbed(links, p) }, p.name),
-      h('button', { type: 'button', class: 'small', title: `Open ${p.name} in its own window`, 'aria-label': `Open ${p.name} in its own window`, onclick: () => openPortal(p.url) }, '↗'))),
-    h('span', { class: 'muted tip' }, 'Name = show inside this page · ↗ = own window'));
+    links.map((p) => h('button', { type: 'button', class: 'small', title: `Open ${p.name} on the right side`, onclick: () => openPortal(p.url) }, p.name)),
+    inSideBySide()
+      ? h('span', { class: 'muted tip' }, 'Portals open on the right half.')
+      : h('button', { type: 'button', class: 'small primary tip', title: 'Billing Control on the left half, portals on the right half', onclick: sideBySideMode }, 'Side-by-side mode'));
 }
 
 // ---------- layout ----------
@@ -386,7 +410,24 @@ async function viewSetup(id) {
     return lid;
   };
   const input = (name, attrs = {}) => { f[name] = h('input', { value: t[name] == null ? '' : t[name], list: listFor(name), autocomplete: 'off', ...attrs }); return f[name]; };
-  const typeRadios = Object.entries(TYPE).map(([k, v]) => h('label', { class: 'inline' }, h('input', { type: 'radio', name: 'tt', value: k, checked: t.task_type === k }), v));
+  const typeRadios = Object.entries(TYPE).map(([k, v]) => h('label', { class: 'inline' }, h('input', { type: 'radio', name: 'tt', value: k, checked: t.task_type === k, onchange: () => applyType() }), v));
+  // Provider details: not asked for demo creation; required for claim creation and submission.
+  const practiceTitle = h('h2', {}, '2 · Practice');
+  const provBox = h('div', { class: 'plain' },
+    h('div', { class: 'muted' }, 'The claims are billed under this provider only: any row with a different provider is held.'),
+    h('div', { class: 'grid' },
+      h('label', {}, 'Provider name (rendering)', input('provider_name')),
+      h('label', {}, 'Provider NPI', input('provider_npi', { class: 'mono', inputmode: 'numeric' })),
+      h('label', {}, 'Billing / group NPI (if different)', input('billing_npi', { class: 'mono', inputmode: 'numeric' })),
+      h('label', {}, 'Billing Tax ID (if different)', input('billing_tax_id', { class: 'mono' }))));
+  const currentType = () => (typeRadios.map((l) => l.querySelector('input')).find((i) => i.checked) || {}).value || t.task_type;
+  function applyType() {
+    const claims = currentType() !== 'demo';
+    provBox.hidden = !claims;
+    practiceTitle.textContent = claims ? '2 · Practice and provider' : '2 · Practice';
+    const loc = document.getElementById('loc-card');
+    if (loc) loc.hidden = !claims;
+  }
   const facilities = h('div', { class: 'facility' });
   const addFacility = (fa = { name: '', address: '' }) => {
     const n = h('input', { value: fa.name, 'aria-label': 'Facility name', placeholder: 'Facility name', list: listFor('facility_name'), autocomplete: 'off' });
@@ -499,16 +540,12 @@ async function viewSetup(id) {
       h('div', { class: 'main' },
         h('section', { class: 'card' }, h('h2', {}, '1 · Task type'), h('div', { class: 'row' }, typeRadios),
           h('div', { class: 'muted' }, 'Sheet status written: Demo creation → "Demo Done" / "Already demo added" · Claim creation → "Claim Created" · Claim submission → "Submitted" · held rows → "Held" plus the reason in Notes')),
-        h('section', { class: 'card' }, h('h2', {}, '2 · Practice and provider'),
-          h('div', { class: 'muted' }, 'Provider is optional. Leave it blank and the bot picks the provider in Office Ally that matches each sheet row (no match = held). Fill it in only to lock this task to one provider.'),
+        h('section', { class: 'card' }, practiceTitle,
           h('div', { class: 'grid' },
           h('label', {}, 'Practice name', input('practice_name')),
-          h('label', {}, 'Office Ally account / practice to use', input('oa_account')),
-          h('label', {}, 'Provider name (optional)', input('provider_name', { placeholder: 'From Office Ally' })),
-          h('label', {}, 'Provider NPI (optional)', input('provider_npi', { class: 'mono', inputmode: 'numeric', placeholder: 'From Office Ally' })),
-          h('label', {}, 'Billing / group NPI (optional)', input('billing_npi', { class: 'mono', inputmode: 'numeric', placeholder: 'From Office Ally' })),
-          h('label', {}, 'Billing Tax ID (optional)', input('billing_tax_id', { class: 'mono', placeholder: 'From Office Ally' })))),
-        h('section', { class: 'card' }, h('h2', {}, '3 · New or changed locations (optional)'),
+          h('label', {}, 'Office Ally account / practice to use', input('oa_account'))),
+          provBox),
+        h('section', { class: 'card', id: 'loc-card' }, h('h2', {}, '3 · New or changed locations (optional)'),
           h('div', { class: 'muted' }, 'Normally leave this empty: for Box 32 the bot picks the Office Ally location whose address exactly matches the sheet (no match = held). Add a location here only when it is new or its address changed; the bot adds it in Office Ally before working the task.'),
           facilities, h('button', { type: 'button', class: 'link', onclick: () => addFacility() }, '+ Add location')),
         h('section', { class: 'card' }, h('h2', {}, '4 · Google Sheet'),
@@ -536,6 +573,7 @@ async function viewSetup(id) {
       checkOut));
   checkOut.append(confirmCard);
   $app.append(lists);
+  applyType();
   const fillIfEmpty = (from, to, map) => f[from].addEventListener('change', () => {
     const v = (sugg[map] || {})[f[from].value.trim()];
     if (v && !f[to].value) { f[to].value = v; f[to].dispatchEvent(new Event('input', { bubbles: true })); toast(`Filled in from an earlier task: ${v}`); }
@@ -583,7 +621,8 @@ async function viewWorklist(id, filter = 'all') {
         btn.disabled = true; btn.textContent = 'Starting…';
         try {
           const r = await api('POST', `/api/tasks/${id}/start-bot`);
-          out.replaceChildren(h('div', { class: 'success' }, `${r.message} Answer its first question there ("yes" to confirm the setup). After that you can follow it here with Chat with bot.`));
+          out.replaceChildren(h('div', { class: 'success' }, r.background ? `${r.message}` : `${r.message} Answer its first question there ("yes" to confirm the setup). After that you can follow it here with Chat with bot.`));
+          if (r.background && CHAT) { CHAT.el.querySelector('.chat-toggle').click(); }
           setTimeout(() => viewWorklist(id, filter), 4000);
         } catch (e) {
           btn.disabled = false; btn.textContent = 'Start bot';
@@ -599,7 +638,7 @@ async function viewWorklist(id, filter = 'all') {
           } }, 'No window appeared? Try again'));
       }
       return h('section', { class: 'card focus' }, h('div', { class: 'row' }, h('h2', {}, 'Start a bot on this task'), h('div', { class: 'end' }, btn)),
-        h('div', { class: 'muted' }, 'Opens Claude in a new window on the PC running Billing Control, already pointed at this task. It picks the next free bot name (Bot 1, Bot 2…).'),
+        h('div', { class: 'muted' }, 'Starts Claude on the PC running Billing Control, already pointed at this task, with the next free bot name. By default it runs in the background: follow it with Chat with bot → Activity.'),
         out,
         h('details', {}, h('summary', {}, 'Start it by hand instead'),
           h('ol', { class: 'steps' },
@@ -951,6 +990,13 @@ async function viewAdmin(flash, newToken) {
     h('section', { class: 'card' }, h('h2', {}, 'Bot tokens'),
       h('div', { class: 'muted' }, 'The bot PC uses a token instead of a password. It can only work confirmed tasks: it cannot change Task Setups, payer lists or users.'),
       tokenMsg,
+      h('label', {}, 'How bots run', (() => {
+        const sel = h('select', { 'aria-label': 'How bots run', onchange: async () => {
+          await api('PUT', '/api/settings/bots', { run_mode: sel.value }); toast('Saved. Bots started from now on run this way.');
+        } }, h('option', { value: 'background', selected: botSet.run_mode === 'background' }, 'In the background (no window): follow them in the chat panel'),
+          h('option', { value: 'window', selected: botSet.run_mode === 'window' }, 'In a PowerShell window (for troubleshooting)'));
+        return sel;
+      })()),
       h('label', {}, 'Model for bots started with the Start bot button', modelSel),
       h('div', { class: 'muted' }, 'Sonnet is noticeably faster per step and handles data entry well. Opus is slower but most careful. Already running bots keep their model.'),
       h('div', { class: 'row' }, tokName, h('button', { type: 'button', class: 'primary', onclick: async () => {
@@ -1019,7 +1065,6 @@ watchVersion();
 let brandingLoaded = false;
 async function render() {
   unmountChat();
-  if (EMBED && !/^#\/tasks\/\d+/.test(location.hash)) closeEmbed();
   clearInterval(LIVE_TIMER);
   if (PENDING_SAVE) { PENDING_SAVE(); PENDING_SAVE = null; }
   try {

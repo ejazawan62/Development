@@ -138,9 +138,10 @@ Efficiency rules:
 - Patient Visits → Add New Visit / New Claim. Select the patient (name + DOB). Confirm the primary
   insurance is active on the DOS; check eligibility again if anything looks off.
 - Fill the CMS-1500 from the card:
-  - **Provider:** if the card says "PROVIDER from Office Ally", select the Office Ally provider whose name matches
-    the card exactly (same person, not just the same last name). None matches → hold
-    `Held — provider not in Office Ally`. If the card shows a locked Task Setup provider, use exactly that one.
+  - **Provider:** claim tasks name one provider in the Task Setup: use exactly that one (billing and rendering);
+    any row with a different provider is already held by the checks. Only for an older task without a provider
+    ("PROVIDER from Office Ally" on the card): select the Office Ally provider whose name matches the card exactly,
+    or hold `Held — provider not in Office Ally`.
   - **Box 32:** pick the Office Ally location whose address **exactly** matches the card's address (street,
     suite, city, state, ZIP). Two candidates or none → hold `Held — facility address mismatch`. Never pick a
     location by name alone.
