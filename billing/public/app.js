@@ -263,31 +263,34 @@ async function deleteTask(t, after) {
 }
 
 // ---------- portals ----------
-// Portals open in ONE browser tab, reused for every portal. Put that tab next to Billing Control with Chrome's
-// split view once, and every portal you click shows up in the other half.
-let PORTAL_TAB = null;
+// Two windows, each half the screen: Billing Control on the left, portals in ONE reused window on the right.
+const halfW = () => Math.floor(screen.availWidth / 2);
+const screenLeft = () => screen.availLeft || 0;
+const screenTop = () => screen.availTop || 0;
+let PORTAL_WIN = null;
 function openPortal(url) {
-  if (PORTAL_TAB && !PORTAL_TAB.closed) {
-    try { PORTAL_TAB.location.href = url; PORTAL_TAB.focus(); return; } catch { /* fall through and reopen */ }
+  const w = halfW();
+  const left = screenLeft() + w;
+  if (PORTAL_WIN && !PORTAL_WIN.closed) {
+    try { PORTAL_WIN.location.href = url; PORTAL_WIN.focus(); return; } catch { /* fall through and reopen */ }
   }
-  const tab = window.open('about:blank', 'bc-portal');
-  if (!tab) { toast('Chrome blocked the portal tab. Click the pop-up icon in the address bar and choose "Always allow pop-ups" for Billing Control.', 'error'); return; }
-  try { tab.opener = null; } catch { /* ignore */ }
-  tab.location.href = url;
-  PORTAL_TAB = tab;
+  const win = window.open('about:blank', 'bc-portal', `popup=yes,width=${w},height=${screen.availHeight},left=${left},top=${screenTop()}`);
+  if (!win) { toast('Chrome blocked the portal window. Click the pop-up icon in the address bar and choose "Always allow pop-ups" for Billing Control, then try again.', 'error'); return; }
+  try { win.opener = null; } catch { /* ignore */ }
+  try { win.moveTo(left, screenTop()); win.resizeTo(w, screen.availHeight); } catch { /* ignore */ }
+  win.location.href = url;
+  PORTAL_WIN = win;
 }
-function splitViewHelp() {
-  const dlg = h('dialog', { class: 'card', 'aria-label': 'Use Chrome split view' },
-    h('h2', {}, 'Billing Control and portals in one Chrome window'),
-    h('ol', { class: 'steps' },
-      h('li', {}, 'Click a portal button (for example Office Ally). It opens in a new tab: the portal tab.'),
-      h('li', {}, 'Right-click the portal tab at the top of Chrome and choose the split view option (for example "Add tab to new split view"). Then pick Billing Control as the other half.'),
-      h('li', {}, 'From now on every portal button opens in that same tab, so it stays in the split. If a portal still opens a new tab (some sites cut the link between tabs for security), close the old one and put the new tab in the split instead.')),
-    h('div', { class: 'muted' }, 'No split view option when you right-click a tab? Update Chrome (menu ⋮ → Help → About Google Chrome) and restart it; split view is in newer versions. Do this once per Chrome session.'),
-    h('div', { class: 'row' }, h('button', { type: 'button', class: 'primary', onclick: () => dlg.close() }, 'Got it')));
-  dlg.addEventListener('close', () => dlg.remove());
-  document.body.append(dlg);
-  dlg.showModal();
+/** Opens Billing Control as a window on the left half; portals then open on the right half. */
+function sideBySideMode() {
+  const win = window.open(location.href, 'bc-main', `popup=yes,width=${halfW()},height=${screen.availHeight},left=${screenLeft()},top=${screenTop()}`);
+  if (!win) { toast('Chrome blocked the window. Click the pop-up icon in the address bar and choose "Always allow pop-ups" for Billing Control, then try again.', 'error'); return; }
+  toast('Billing Control is now on the left half. Portals open on the right half. You can close this tab.');
+}
+const inSideBySide = () => window.name === 'bc-main';
+// Keep the Billing Control window on the left half (also after a reload).
+if (inSideBySide()) {
+  try { window.moveTo(screenLeft(), screenTop()); window.resizeTo(halfW(), screen.availHeight); } catch { /* ignore */ }
 }
 
 function portalBar(links) {
@@ -295,7 +298,9 @@ function portalBar(links) {
   return h('div', { class: 'portalbar', role: 'group', 'aria-label': 'Portals' },
     h('span', { class: 'muted' }, icon('portal'), 'Portals'),
     links.map((p) => h('button', { type: 'button', class: 'small', title: `Open ${p.name} on the right side`, onclick: () => openPortal(p.url) }, p.name)),
-    h('button', { type: 'button', class: 'small tip', title: 'How to show portals next to Billing Control in one Chrome window', onclick: splitViewHelp }, 'Split view: how to'));
+    inSideBySide()
+      ? h('span', { class: 'muted tip' }, 'Portals open on the right half of the screen.')
+      : h('button', { type: 'button', class: 'small primary tip', title: 'Billing Control on the left half, portals on the right half', onclick: sideBySideMode }, 'Split screen'));
 }
 
 // ---------- layout ----------
